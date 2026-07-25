@@ -1,0 +1,20 @@
+# --- R session / IDE ---
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# --- OS cruft ---
+.DS_Store
+**/.DS_Store
+
+# --- Workflow scratch ---
+.snakemake/
+
+# --- BGLR trace files written to the working dir during estimation ---
+# (mu, varE, lambda, etc. — regenerated each fit)
+*.dat
+
+# --- Regenerable QTL permutation batches (large; ~hundreds of MB) ---
+# Recreated by scripts/05 and scripts/07; safe to drop from version control.
+analyses/qtl_analyses/tmp/
