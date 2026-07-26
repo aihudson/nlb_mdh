@@ -57,17 +57,28 @@ Each stage writes files consumed by the next.
    convention — the B73-allele effect on the disease-scale BLUP, positive = B73 raises disease —
    which requires per-population sign handling of R/qtl's internal genotype-code trap (see
    `plans/identify_qtl_and_effects.md`): RIL peaks give `a` directly; a BC's MPH peaks give `d`;
-   a BC's BLUP peaks give a confounded `d-a` (B73 BC) or `-a-d` (Mo17 BC) contrast, never
-   reported as `a`. Also fits the RIL cross at any BC-only peak position to supply its `a` (a
-   borrowed fit, marked with `lod = NA` since it isn't an independently significant RIL peak).
-   Writes/merges `analyses/qtl_effects.csv`.
-10. **`10_qtl_gene_action.R`** — No population arg; combines all of `09`'s output. Colocalizes
-    peaks into a `qtl_id` per chromosome via connected components of overlapping confidence
-    intervals (a base-R `find_overlaps()` on `[ci_lo, ci_hi]`, doing what
-    `IRanges::findOverlaps` would — written this way to avoid a Bioconductor dependency), joins
-    each cluster's RIL `a` with
-    its B73/Mo17 BC `d`, and classifies gene action from `d/a` (cutoffs 0.2/0.8/1.2 →
-    additive/pd/dominant/od/ud, direction-aware). Writes `analyses/qtl_gene_action.csv`.
+   a BC's BLUP peaks give a confounded `d-a` (B73 BC) or `-a-d` (Mo17 BC) contrast, reported with
+   `estimate_type="confounded"` (never as `a`/`d`). Each `Qi:Qj` term also gets its own output row
+   (`effect_class="epistatic"`, `chr`/`pos` = locus 1, `chr2`/`pos2` = locus 2, `lod` = the pair's
+   `lod.int` from `08`, no sign flip — both loci share the same population/trait so the flip
+   squares to +1). Every population additionally borrows a dummy-QTL fit of its own gene-action
+   parameter (RIL → BLUP `a`; either BC → MPH `d`) at every QTL position from `06` where it lacks
+   an independent peak on that parameter — so every position gets an `a` and both BCs' `d`s, real
+   or borrowed. A boolean `borrowed` column marks these (not `lod = NA`, which is now reserved for
+   genuinely absent info: borrowed rows still get a real `fitqtl_lod`, just no `lod` from `06`/`08`
+   since they weren't an independently significant peak). Writes/merges `analyses/qtl_effects.csv`
+   (columns: `cross, trait, chr, pos, chr2, pos2, ci_lo, ci_hi, lod, estimate, estimate_type,
+   effect_class, borrowed, fitqtl_lod`).
+10. **`10_qtl_gene_action.R`** — No population arg; combines all of `09`'s output. Filters to
+    `effect_class=="main"` first (epistatic rows have NA CIs and describe a locus pair, not a
+    single QTL, so they're excluded from colocalization). Colocalizes the remaining peaks into a
+    `qtl_id` per chromosome via connected components of overlapping confidence intervals (a base-R
+    `find_overlaps()` on `[ci_lo, ci_hi]`, doing what `IRanges::findOverlaps` would — written this
+    way to avoid a Bioconductor dependency), joins each cluster's `a` with its B73/Mo17 BC `d`
+    (real value preferred over borrowed when both exist), and classifies gene action from `d/a`
+    (cutoffs 0.2/0.8/1.2 → additive/pd/dominant/od/ud, direction-aware). Every colocalized QTL now
+    gets a classification, real or borrowed; `a_sig`/`B73_d_sig`/`Mo17_d_sig` (`= !borrowed`) mark
+    which. Writes `analyses/qtl_gene_action.csv`.
 11. **`11_genome_wide_effect_scan.R`** — Sliding whole-genome effect profile: at every imputed
     map position, fits a dummy QTL alongside that population's real peaks (dropping any real
     peak within 20 cM of the test position) plus its genuine `08` epistatic partners, and

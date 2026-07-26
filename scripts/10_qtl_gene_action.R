@@ -7,6 +7,11 @@ output_file <- "analyses/qtl_gene_action.csv"
 
 qtl_effects <- read.csv(qtl_effects_file, stringsAsFactors = FALSE)
 
+# epistatic rows carry NA CIs and describe a locus pair, not a single QTL --
+# exclude them from colocalization so they don't pollute the connected-
+# component grouping; a/d/confounded main-effect rows all keep real CIs.
+main_effects <- qtl_effects %>% filter(effect_class == "main")
+
 # find_overlaps: pairwise overlap of [ci_lo, ci_hi] intervals, returned as a
 # data.frame(queryHits, subjectHits) -- the same shape as
 # IRanges::findOverlaps(IRanges(start, end)), but in base R so this script
@@ -21,11 +26,11 @@ find_overlaps <- function(lo, hi) {
 
 # colocalize: connected components of overlapping [ci_lo, ci_hi] within each
 # chromosome, replacing the legacy hand-assigned qtl ids in overlapping_qtl.Rmd
-qtl_effects$qtl_id <- NA_integer_
+main_effects$qtl_id <- NA_integer_
 next_id <- 1L
-for (this_chr in sort(unique(qtl_effects$chr))) {
-  idx <- which(qtl_effects$chr == this_chr)
-  ov <- find_overlaps(qtl_effects$ci_lo[idx], qtl_effects$ci_hi[idx])
+for (this_chr in sort(unique(main_effects$chr))) {
+  idx <- which(main_effects$chr == this_chr)
+  ov <- find_overlaps(main_effects$ci_lo[idx], main_effects$ci_hi[idx])
 
   n <- length(idx)
   parent <- seq_len(n)
@@ -41,34 +46,40 @@ for (this_chr in sort(unique(qtl_effects$chr))) {
   comp <- vapply(seq_len(n), find_root, integer(1))
   local_id <- match(comp, unique(comp))
 
-  qtl_effects$qtl_id[idx] <- next_id - 1L + local_id
+  main_effects$qtl_id[idx] <- next_id - 1L + local_id
   next_id <- next_id + length(unique(comp))
 }
 
 # per-cluster chr/pos: mean position of its member peaks
-clusters <- qtl_effects %>%
+clusters <- main_effects %>%
   group_by(qtl_id) %>%
   summarise(chr = chr[1], pos = mean(pos), .groups = "drop")
 
-a_vals <- qtl_effects %>%
+# a/d values now come from real peaks *or* borrowed dummy-QTL fits (09's
+# symmetric borrowing), so every qtl_id gets a value; when both a real and a
+# borrowed fit exist for the same qtl_id, prefer the real one.
+a_vals <- main_effects %>%
   filter(estimate_type == "a") %>%
   group_by(qtl_id) %>%
-  summarise(a = estimate[1], .groups = "drop")
+  arrange(borrowed, .by_group = TRUE) %>%
+  summarise(a = estimate[1], a_sig = !borrowed[1], .groups = "drop")
 
-b73_d <- qtl_effects %>%
+b73_d <- main_effects %>%
   filter(estimate_type == "d", cross == "B73_BC") %>%
   group_by(qtl_id) %>%
-  summarise(B73_d = estimate[1], .groups = "drop")
+  arrange(borrowed, .by_group = TRUE) %>%
+  summarise(B73_d = estimate[1], B73_d_sig = !borrowed[1], .groups = "drop")
 
-mo17_d <- qtl_effects %>%
+mo17_d <- main_effects %>%
   filter(estimate_type == "d", cross == "Mo17_BC") %>%
   group_by(qtl_id) %>%
-  summarise(Mo17_d = estimate[1], .groups = "drop")
+  arrange(borrowed, .by_group = TRUE) %>%
+  summarise(Mo17_d = estimate[1], Mo17_d_sig = !borrowed[1], .groups = "drop")
 
 # which cross/trait combos were independently significant (excludes
-# borrowed/supplemental "a" fits, which carry lod = NA) at each qtl_id
-sig_in <- qtl_effects %>%
-  filter(!is.na(lod)) %>%
+# borrowed/supplemental fits) at each qtl_id
+sig_in <- main_effects %>%
+  filter(!borrowed) %>%
   mutate(tag = ifelse(grepl("_MPH$", trait), paste0(cross, "_MPH"), cross)) %>%
   group_by(qtl_id) %>%
   summarise(sig_in = paste(sort(unique(tag)), collapse = ","), .groups = "drop")
@@ -95,8 +106,8 @@ combined <- clusters %>%
     B73_action = classify_action(`B73_d/a`),
     Mo17_action = classify_action(`Mo17_d/a`)
   ) %>%
-  select(qtl_id, chr, pos, a, B73_d, `B73_d/a`, B73_action,
-         Mo17_d, `Mo17_d/a`, Mo17_action, sig_in) %>%
+  select(qtl_id, chr, pos, a, a_sig, B73_d, `B73_d/a`, B73_action, B73_d_sig,
+         Mo17_d, `Mo17_d/a`, Mo17_action, Mo17_d_sig, sig_in) %>%
   arrange(qtl_id)
 
 write.csv(combined, output_file, row.names = FALSE)

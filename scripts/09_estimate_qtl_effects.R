@@ -10,13 +10,14 @@ population <- args[1]
 
 presets <- list(
   RIL = list(input_file = "analyses/RIL_cross.csv", genotype = c("A", "B"),
-             na.strings = "-", crosstype = "ril"),
+             na.strings = "-", crosstype = "ril", ga_trait = "NLB_WMD_BLUP"),
   B73_BC = list(input_file = "analyses/B73_cross.csv", genotype = c("AA", "AB"),
-                na.strings = "A-", crosstype = "bc"),
+                na.strings = "A-", crosstype = "bc", ga_trait = "NLB_WMD_BLUP_MPH"),
   Mo17_BC = list(input_file = "analyses/Mo17_cross.csv", genotype = c("AB", "BB"),
-                 na.strings = "-B", crosstype = "bc")
+                 na.strings = "-B", crosstype = "bc", ga_trait = "NLB_WMD_BLUP_MPH")
 )
 
+min_sep_cM <- 20
 genuine_alpha <- "0.05"
 main_effect_peaks_file <- "analyses/main_effect_peaks.csv"
 epistatic_peaks_file <- "analyses/epistatic_peaks.csv"
@@ -33,6 +34,10 @@ output_file <- "analyses/qtl_effects.csv"
 #    trap), so raw_est = hom - het. For BLUP that's already -a-d as-is
 #    (matches the confounded-contrast convention, no flip). For MPH it must
 #    be flipped to report d = het - hom.
+#  - Epistatic (aa) terms: both loci in a scantwo pair share the same
+#    population/trait, so the flip is sign_mult(pop,trait)^2 = +1 always
+#    (see Revision 2026-07-26, problem #1) -- callers of sign_mult() for
+#    epistatic rows should not use this function; they apply no flip.
 sign_mult <- function(population, trait) {
   if (population == "RIL") return(-1)
   if (population == "Mo17_BC" && trait == "NLB_WMD_BLUP_MPH") return(-1)
@@ -60,7 +65,8 @@ read_cross <- function(input_file, genotype, na.strings, crosstype) {
 
 # fit one phenotype's main peaks together, adding Qi:Qj terms for any
 # genuine epistatic partners so the main-peak estimates/LODs are adjusted
-# for background epistasis; returns one row per main peak, same order.
+# for background epistasis; returns list(main=<one row per main peak>,
+# epi=<one row per epistatic pair, with its own estimate + drop-one LOD>)
 fit_main_effects <- function(cross, trait, main_peaks, epi_peaks) {
   main_n <- nrow(main_peaks)
   chrs <- main_peaks$chr
@@ -85,19 +91,96 @@ fit_main_effects <- function(cross, trait, main_peaks, epi_peaks) {
   out.qtl <- fitqtl(cross, pheno.col = pheno.col, qtl = qtlobj, get.ests = TRUE, formula = formula)
   s <- summary(out.qtl)
 
+  # only Qi:Qj interaction terms are in the model for epi partners (no main
+  # effect terms for those loci), so ests[-1,1]/result.drop have exactly
+  # main_n + epi_n rows; identify the trailing epi_n as interaction rows by
+  # ":" in the term name -- robust to R/qtl's "Q3:Q4" vs "chr@pos:chr@pos".
+  ests <- as.numeric(s$ests[-1, 1])
+  is_epi <- grepl(":", rownames(s$ests)[-1])
+
   # result.drop is NULL when there's exactly one QTL term (main_n==1, no
   # epistasis partners) -- dropping the only term is the same comparison as
   # the full-vs-null model, so fall back to the full-model LOD in that case.
   if (is.null(s$result.drop)) {
-    fitqtl_lod <- rep(s$result.full["Model", "LOD"], main_n)
+    main_lod <- rep(s$result.full["Model", "LOD"], main_n)
+    epi_lod <- numeric(0)
   } else {
-    fitqtl_lod <- as.numeric(s$result.drop[, "LOD"])[seq_len(main_n)]
+    drop_is_epi <- grepl(":", rownames(s$result.drop))
+    main_lod <- as.numeric(s$result.drop[!drop_is_epi, "LOD"])[seq_len(main_n)]
+    epi_lod <- as.numeric(s$result.drop[drop_is_epi, "LOD"])
   }
 
-  data.frame(
-    raw_estimate = as.numeric(s$ests[-1, 1])[seq_len(main_n)],
-    fitqtl_lod = fitqtl_lod
+  main <- data.frame(
+    raw_estimate = ests[!is_epi][seq_len(main_n)],
+    fitqtl_lod = main_lod
   )
+
+  epi <- data.frame()
+  if (epi_n > 0) {
+    epi <- data.frame(
+      chr1 = epi_peaks$chr1, pos1 = epi_peaks$pos1,
+      chr2 = epi_peaks$chr2, pos2 = epi_peaks$pos2,
+      lod = epi_peaks$lod.int,
+      raw_estimate = ests[is_epi],
+      fitqtl_lod = epi_lod
+    )
+  }
+
+  list(main = main, epi = epi)
+}
+
+# fit the population's real ga_trait peaks + genuine epi partners plus one
+# dummy QTL at (chr, pos), dropping any real peak/epi locus within
+# min_sep_cM of the dummy; returns the dummy's raw estimate + drop-one LOD.
+# Same "dummy-QTL" mechanics as 11_genome_wide_effect_scan.R::dummy_qtl_effect.
+dummy_qtl_effect <- function(cross, trait, chr, pos, main_peaks, epi_peaks) {
+  near_dummy <- function(c, p) c == chr & abs(p - pos) < min_sep_cM
+
+  keep_main <- main_peaks[!near_dummy(main_peaks$chr, main_peaks$pos), , drop = FALSE]
+  keep_epi <- epi_peaks
+  if (nrow(keep_epi) > 0) {
+    drop_epi <- near_dummy(keep_epi$chr1, keep_epi$pos1) | near_dummy(keep_epi$chr2, keep_epi$pos2)
+    keep_epi <- keep_epi[!drop_epi, , drop = FALSE]
+  }
+
+  main_n <- nrow(keep_main)
+  dummy_idx <- main_n + 1
+  chrs <- c(keep_main$chr, chr)
+  poss <- c(keep_main$pos, pos)
+  qnam <- paste0("Q", seq_len(main_n + 1))
+
+  epinam <- ""
+  epi_n <- nrow(keep_epi)
+  if (epi_n > 0) {
+    for (j in seq_len(epi_n)) {
+      idx1 <- main_n + 1 + (2 * j - 1)
+      idx2 <- main_n + 1 + (2 * j)
+      chrs <- c(chrs, keep_epi$chr1[j], keep_epi$chr2[j])
+      poss <- c(poss, keep_epi$pos1[j], keep_epi$pos2[j])
+      epinam <- paste0(epinam, "+Q", idx1, ":Q", idx2)
+    }
+  }
+
+  qtlobj <- makeqtl(cross, chr = chrs, pos = poss)
+  formula <- as.formula(paste0("y ~ ", paste(qnam, collapse = "+"), epinam))
+  pheno.col <- match(trait, colnames(cross$pheno))
+  out.qtl <- tryCatch(
+    fitqtl(cross, pheno.col = pheno.col, qtl = qtlobj, get.ests = TRUE, formula = formula),
+    error = function(e) NULL
+  )
+  if (is.null(out.qtl)) return(list(raw_estimate = NA_real_, fitqtl_lod = NA_real_))
+
+  s <- summary(out.qtl)
+  raw_estimate <- as.numeric(s$ests[-1, 1])[dummy_idx]
+
+  if (is.null(s$result.drop)) {
+    fitqtl_lod <- s$result.full["Model", "LOD"]
+  } else {
+    drop_is_epi <- grepl(":", rownames(s$result.drop))
+    fitqtl_lod <- as.numeric(s$result.drop[!drop_is_epi, "LOD"])[dummy_idx]
+  }
+
+  list(raw_estimate = raw_estimate, fitqtl_lod = fitqtl_lod)
 }
 
 preset <- presets[[population]]
@@ -114,63 +197,99 @@ if (file.exists(epistatic_peaks_file)) {
 
 peaks <- main_effect_peaks %>% filter(cross == population)
 
-results <- data.frame()
+# real peak fits (main effect + epistatic interaction rows), one pass per
+# trait this population has independently significant peaks on
+main_rows <- data.frame()
+epi_rows <- data.frame()
 for (trait in unique(peaks$trait)) {
   trait_peaks <- peaks %>% filter(trait == !!trait)
   trait_epi <- genuine_epi %>% filter(cross == population, trait == !!trait)
   fit <- fit_main_effects(cross, trait, trait_peaks, trait_epi)
-  trait_peaks$raw_estimate <- fit$raw_estimate
-  trait_peaks$fitqtl_lod <- fit$fitqtl_lod
+
+  trait_peaks$raw_estimate <- fit$main$raw_estimate
+  trait_peaks$fitqtl_lod <- fit$main$fitqtl_lod
   trait_peaks$estimate_type <- estimate_type_for(population, trait)
   trait_peaks$estimate <- trait_peaks$raw_estimate * sign_mult(population, trait)
-  results <- rbind(results, trait_peaks)
-}
+  trait_peaks$effect_class <- "main"
+  trait_peaks$borrowed <- FALSE
+  trait_peaks$chr2 <- NA_integer_
+  trait_peaks$pos2 <- NA_real_
+  main_rows <- bind_rows(main_rows, trait_peaks)
 
-# supplemental RIL "a" fits at this population's BC-only peak positions (no
-# RIL peak already covers that location), needed by 10_qtl_gene_action.R
-supplemental <- data.frame()
-if (population != "RIL") {
-  ril_peaks <- main_effect_peaks %>% filter(cross == "RIL")
-  ril_preset <- presets[["RIL"]]
-  ril_cross <- sim.geno(read_cross(ril_preset$input_file, ril_preset$genotype, ril_preset$na.strings, ril_preset$crosstype), step = 2.5)
-  ril_genuine_epi <- genuine_epi %>% filter(cross == "RIL", trait == "NLB_WMD_BLUP")
-
-  already_covered <- mapply(function(c, p) any(ril_peaks$chr == c & abs(ril_peaks$pos - p) <= 5),
-                             peaks$chr, peaks$pos)
-  bc_only <- peaks[!already_covered, ]
-  bc_only <- bc_only[!duplicated(bc_only[, c("chr", "pos")]), ]
-
-  if (nrow(bc_only) > 0) {
-    fit <- fit_main_effects(ril_cross, "NLB_WMD_BLUP", bc_only, ril_genuine_epi)
-    supplemental <- data.frame(
-      cross = "RIL",
-      trait = "NLB_WMD_BLUP",
-      chr = bc_only$chr,
-      pos = bc_only$pos,
-      # NA marks this as a borrowed fit at a BC peak's position, not an
-      # independently significant RIL peak (kept for 10's colocalization
-      # join, but excluded from its "sig_in" significance tally)
-      lod = NA,
-      ci_lo = bc_only$ci_lo,
-      ci_hi = bc_only$ci_hi,
-      raw_estimate = fit$raw_estimate,
-      fitqtl_lod = fit$fitqtl_lod,
-      estimate_type = "a"
-    )
-    supplemental$estimate <- supplemental$raw_estimate * sign_mult("RIL", "NLB_WMD_BLUP")
+  if (nrow(fit$epi) > 0) {
+    # both loci share this population/trait, so the aa-term flip is
+    # sign_mult(pop,trait)^2 == +1 always -- no sign flip applied here.
+    epi <- fit$epi %>%
+      transmute(cross = population, trait = trait,
+                chr = chr1, pos = pos1, chr2 = chr2, pos2 = pos2,
+                ci_lo = NA_real_, ci_hi = NA_real_,
+                lod = lod,
+                estimate = raw_estimate,
+                estimate_type = "epistatic", effect_class = "epistatic", borrowed = FALSE,
+                fitqtl_lod = fitqtl_lod)
+    epi_rows <- bind_rows(epi_rows, epi)
   }
 }
 
-results <- bind_rows(results, supplemental) %>%
-  select(cross, trait, chr, pos, ci_lo, ci_hi, lod, estimate, estimate_type, fitqtl_lod)
+# symmetric borrowing: at every QTL position (union across all populations'
+# main-effect peaks) this population lacks an independent peak for on its
+# own gene-action parameter, borrow a dummy-QTL fit of that parameter --
+# RIL borrows "a" (from NLB_WMD_BLUP), both BCs borrow "d" (from
+# NLB_WMD_BLUP_MPH) -- so every QTL ends up with an a/d set from every
+# population, not just RIL.
+union_positions <- main_effect_peaks %>%
+  distinct(chr, pos, .keep_all = TRUE) %>%
+  select(chr, pos, ci_lo, ci_hi)
+
+own_ga_peaks <- peaks %>% filter(trait == preset$ga_trait)
+own_ga_epi <- genuine_epi %>% filter(cross == population, trait == preset$ga_trait)
+
+already_covered <- mapply(function(c, p) any(own_ga_peaks$chr == c & abs(own_ga_peaks$pos - p) <= 5),
+                           union_positions$chr, union_positions$pos)
+borrow_positions <- union_positions[!already_covered, ]
+
+borrowed_rows <- data.frame()
+if (nrow(borrow_positions) > 0) {
+  fits <- lapply(seq_len(nrow(borrow_positions)), function(i) {
+    dummy_qtl_effect(cross, preset$ga_trait, borrow_positions$chr[i], borrow_positions$pos[i],
+                      own_ga_peaks, own_ga_epi)
+  })
+  borrowed_rows <- data.frame(
+    cross = population,
+    trait = preset$ga_trait,
+    chr = borrow_positions$chr,
+    pos = borrow_positions$pos,
+    chr2 = NA_integer_,
+    pos2 = NA_real_,
+    ci_lo = borrow_positions$ci_lo,
+    ci_hi = borrow_positions$ci_hi,
+    lod = NA_real_,
+    raw_estimate = sapply(fits, function(x) x$raw_estimate),
+    fitqtl_lod = sapply(fits, function(x) x$fitqtl_lod),
+    estimate_type = ifelse(population == "RIL", "a", "d"),
+    effect_class = "main",
+    borrowed = TRUE
+  )
+  borrowed_rows$estimate <- borrowed_rows$raw_estimate * sign_mult(population, preset$ga_trait)
+}
+
+results <- bind_rows(main_rows, epi_rows, borrowed_rows) %>%
+  select(cross, trait, chr, pos, chr2, pos2, ci_lo, ci_hi, lod, estimate,
+         estimate_type, effect_class, borrowed, fitqtl_lod)
 
 # merge into the combined output, replacing any existing rows with the same
-# (cross, trait, chr, pos) identity so re-running a population is idempotent
+# (cross, trait, chr, pos, chr2, pos2) identity so re-running a population
+# is idempotent; tolerate an old file written before chr2/pos2 existed.
 if (file.exists(output_file)) {
   existing <- read.csv(output_file, stringsAsFactors = FALSE)
-  key <- function(df) paste(df$cross, df$trait, df$chr, df$pos)
+  if (!"chr2" %in% colnames(existing)) existing$chr2 <- NA_integer_
+  if (!"pos2" %in% colnames(existing)) existing$pos2 <- NA_real_
+  key <- function(df) {
+    paste(df$cross, df$trait, df$chr, df$pos,
+          ifelse(is.na(df$chr2), "", df$chr2), ifelse(is.na(df$pos2), "", df$pos2))
+  }
   existing <- existing[!key(existing) %in% key(results), ]
-  results <- rbind(existing, results)
+  results <- bind_rows(existing, results)
 }
 
 write.csv(results, output_file, row.names = FALSE)
