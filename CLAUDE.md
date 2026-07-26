@@ -9,7 +9,7 @@ of **NAM** lines. The analysis fits mixed models to get line BLUPs, quantifies h
 (mid- and best-parent), and runs linkage QTL mapping (single-QTL MQM scans and two-QTL/epistasis
 `scantwo`) per population. The work is organized as a numbered R pipeline in `scripts/`.
 
-## Pipeline — run in order (`scripts/01`–`07`)
+## Pipeline — run in order (`scripts/01`–`11`)
 
 Each stage writes files consumed by the next.
 
@@ -43,6 +43,40 @@ Each stage writes files consumed by the next.
    is cached at `analyses/qtl_analyses/tmp/<name>.scantwo.tmp.RDS`, and permutations run in batches
    of 10 to `tmp/<name>.trait.<pheno>.batch.<j>.scantwo.perm.tmp` (existing files are skipped on
    re-run). Writes `analyses/qtl_analyses/<name>_scantwo.RDS` (a list of `scan` + `permutations`).
+8. **`08_identify_epistatic_qtl.R`** — Calls significant epistatic pairs from a `07` `scantwo`
+   RDS. CLI: `Rscript scripts/08_identify_epistatic_qtl.R <population> [alpha]` (alpha default
+   0.05). Per phenotype, gets every local-maximum chr-pair (`summary(scan, what="int",
+   thresholds=0)`) and a permutation p-value for each (`mean(perms$int >= lod.int)`); flags
+   `same_chr_close` (same chromosome, peaks <20 cM apart — a linked-marker artifact, not real
+   epistasis) and buckets each pair into `sig_level` ∈ `{alpha, 0.20, "ns"}`. Writes/merges
+   `analyses/epistatic_peaks.csv` (replacing that population's rows on re-run).
+9. **`09_estimate_qtl_effects.R`** — Fits additive (`a`) and dominance (`d`) effects at the
+   `06`/`08` peaks with `fitqtl(get.ests=TRUE)`, adding `Qi:Qj` terms for any genuine
+   (`sig_level=="0.05"`, not `same_chr_close`) epistatic partner from `08`. CLI:
+   `Rscript scripts/09_estimate_qtl_effects.R <population>`. Reports everything on one
+   convention — the B73-allele effect on the disease-scale BLUP, positive = B73 raises disease —
+   which requires per-population sign handling of R/qtl's internal genotype-code trap (see
+   `plans/identify_qtl_and_effects.md`): RIL peaks give `a` directly; a BC's MPH peaks give `d`;
+   a BC's BLUP peaks give a confounded `d-a` (B73 BC) or `-a-d` (Mo17 BC) contrast, never
+   reported as `a`. Also fits the RIL cross at any BC-only peak position to supply its `a` (a
+   borrowed fit, marked with `lod = NA` since it isn't an independently significant RIL peak).
+   Writes/merges `analyses/qtl_effects.csv`.
+10. **`10_qtl_gene_action.R`** — No population arg; combines all of `09`'s output. Colocalizes
+    peaks into a `qtl_id` per chromosome via connected components of overlapping confidence
+    intervals (a base-R `find_overlaps()` on `[ci_lo, ci_hi]`, doing what
+    `IRanges::findOverlaps` would — written this way to avoid a Bioconductor dependency), joins
+    each cluster's RIL `a` with
+    its B73/Mo17 BC `d`, and classifies gene action from `d/a` (cutoffs 0.2/0.8/1.2 →
+    additive/pd/dominant/od/ud, direction-aware). Writes `analyses/qtl_gene_action.csv`.
+11. **`11_genome_wide_effect_scan.R`** — Sliding whole-genome effect profile: at every imputed
+    map position, fits a dummy QTL alongside that population's real peaks (dropping any real
+    peak within 20 cM of the test position) plus its genuine `08` epistatic partners, and
+    records the dummy QTL's effect. CLI: `Rscript scripts/11_genome_wide_effect_scan.R
+    <population>`. Writes/merges `analyses/qtl_effects_whole_genome.csv`, one effect column per
+    population/phenotype (e.g. `NLB_ril_effect`, `NLB_b73_effect`, `NLB_b73_mph_effect`,
+    `NLB_mo17_effect`, `NLB_mo17_mph_effect`) — plot effect vs. LOD along the genome. Positions
+    are rounded to 4 decimals so repeated per-population runs join cleanly on `(chr, pos)`
+    despite `write.csv`/`read.csv` precision loss on re-read.
 
 ## How these scripts are run
 
@@ -79,6 +113,23 @@ Each stage writes files consumed by the next.
   - `scripts/` — the code.
   - `nlb_mdh.Rproj` — RStudio project.
 
+## Effect sign convention (scripts 09, 11)
+
+All additive/dominance estimates are reported as **the substitution effect of the B73 allele on
+`NLB_WMD_BLUP`, disease scale as-is** (positive = B73 allele raises disease). Getting this right
+requires per-population sign handling because R/qtl's raw `fitqtl` coefficient is on an internal
+genotype code that isn't the same for every cross:
+- **RIL**: internal code runs B73=-1, Mo17=+1, so `a = -raw_estimate`.
+- **B73 BC**: R/qtl's internal "AB" genotype is the true B73/Mo17 heterozygote, so
+  `raw_estimate = het - hom` already — no flip. BLUP peaks give the confounded contrast `d - a`;
+  MPH peaks give `d` directly.
+- **Mo17 BC**: R/qtl's internal "AA" is the true B73/Mo17 heterozygote (the reverse of B73 BC —
+  an internal-code trap), so `raw_estimate = hom - het`. BLUP peaks are still reported as-is
+  (already `-a - d`, no flip); MPH peaks must be negated to report `d = het - hom`.
+
+See `plans/identify_qtl_and_effects.md` for the full derivation and worked reference values
+(e.g. RIL `9@100` → `a ≈ +1.9`, matching effectplot genotype-class means).
+
 ## Tooling / dependencies
 
 R, with:
@@ -89,8 +140,9 @@ R, with:
 
 ## Scope note
 
-The numbered `01`–`07` pipeline above is the current workflow. The other, unnumbered scripts in
+The numbered `01`–`11` pipeline above is the current workflow. The other, unnumbered scripts in
 `scripts/` (e.g. `run_rqtl*.R`, `get_*.R`, `convert_rqtl2_to_rqtl.R`, `bayesian_blups.R`,
 `genomic_prediction.R`, `gp_helper_functions.R`) are older/superseded or supporting helpers and
 are not documented here yet — except `convert_rqtl2_to_rqtl.R`, which the numbered pipeline still
-calls from step 04.
+calls from step 04. `scripts/get_effects/` holds the legacy `mdh_qtl` notebooks that `08`–`11`
+were distilled from; they reference files/crosses from that other project and won't run here.
