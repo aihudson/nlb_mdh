@@ -16,6 +16,131 @@ The goal is to finish the pipeline: (1) identify significant epistatic QTL, and 
 - Main-effect peaks already called (6 total): RIL 6@245 & 9@100; B73_BC 6@245 (BLUP) & 1@480 (MPH); Mo17_BC 5@535 (BLUP) & 1@760 (MPH).
 - **Epistasis is real but needs artifact-filtering.** Against the interaction-LOD permutation threshold: RIL BLUP **c1×c3** (int LOD 6.69, p≈0.000) and **c3×c5** (p≈0.008); B73_BC BLUP **c3×c8** (p≈0.042) and **c4×c9** (p≈0.05) are genuine inter-chromosomal interactions. The MPH hits and all same-chromosome hits are pairs 1–2 cM apart (linked-marker artifacts). So `08` must flag/exclude same-chromosome, closely-spaced pairs and also surface near-significant (α=0.20) pairs so you can decide whether to run more permutations.
 
+---
+
+# Revision 2026-07-26 — investigate & complete effect estimation (scripts 09–10)
+
+> **For a fresh session:** scripts 08–11 are already built and their outputs exist on disk. This
+> section supersedes the original 09/10 descriptions below where they conflict. It fixes four
+> problems the user raised after reading `analyses/qtl_effects.csv` / `analyses/qtl_gene_action.csv`.
+> All work is confined to **`scripts/09_estimate_qtl_effects.R`** and
+> **`scripts/10_qtl_gene_action.R`**; reuse the mechanics already in those files and in the legacy
+> `scripts/get_effects/qtl_effect_all.Rmd::run_fitqtl()`. The B73-allele/disease-BLUP sign
+> convention, `sign_mult()`, `estimate_type_for()`, and `read_cross()` all stay as-is.
+
+## The four problems (with what investigation found)
+
+1. **Main vs epistatic effects are indistinguishable.** `qtl_effects.csv` holds *only* main-effect
+   estimates. The genuine epistatic pairs (RIL c1×c3, c3×c5; B73_BC c3×c8, c4×c9) go into the
+   `fitqtl` model as background covariates, but their interaction effect sizes are **discarded**:
+   `fit_main_effects()` computes `summary(out.qtl)$ests[-1,1]` (whose trailing elements *are* the
+   `Qi:Qj` coefficients) then slices `[seq_len(main_n)]`. The legacy `run_fitqtl()`
+   ([qtl_effect_all.Rmd](scripts/get_effects/qtl_effect_all.Rmd#L80-L94)) kept those interaction
+   coefficients + their drop-one LOD and emitted them as extra rows — so they're already being fit,
+   just truncated away.
+2. **Some LOD scores are NA.** By design — the "borrowed" supplemental fits (a RIL fit at a BC-only
+   peak) carry `lod = NA` to mark "not an independently significant peak"; the real fit LOD is in
+   `fitqtl_lod`. But `NA` overloads two meanings and is not self-explanatory.
+3. **chr6 shows "opposite" B73 effects in RIL (−1.41) vs B73_BC (+1.63) — verified NOT a bug.**
+   `effectplot` confirms RIL 6@245 means **B73/B73 = 86.27 < Mo17/Mo17 = 89.71**, so the B73 allele
+   *lowers* disease (`a` ≈ −1.7 raw, −1.4 to −1.6 epistasis-adjusted — stable). The B73_BC +1.63 is
+   the **confounded `d − a` contrast**, not `a`; with `a` negative, `d − a = d + 1.41` is positive
+   (⇒ `d` ≈ +0.2–0.5, small). Both populations agree B73 is protective at chr6. The confusion is
+   purely comparing an `a` against a `d − a`. **(Appendix C below is corrected accordingly.)**
+4. **Gene action only for QTL significant in two populations.** `d` currently comes *only* from a
+   BC's independently-significant MPH peak, so chr5, chr6, chr9 get no action call. **Decision:**
+   estimate the MPH `d` at *every* QTL position regardless of MPH significance (a small
+   non-significant `d` still informs gene action; requiring MPH significance would make "additive"
+   uncallable). Borrowing must be **fully symmetric**: any QTL significant in a BC but not the RIL
+   also gets an `a` from a borrowed RIL fit.
+
+## Changes to `09_estimate_qtl_effects.R`
+
+- **Report epistatic interaction effects (#1).** In `fit_main_effects()`, also return the trailing
+  interaction coefficients `ests[main_n + j]` and each interaction's drop-one LOD from
+  `summary(out.qtl)$result.drop` (identify interaction rows by `grepl(":", rownames(...))` — robust
+  to R/qtl's `Q3:Q4` vs `chr@pos:chr@pos` naming). Emit one row per genuine epi pair with
+  `estimate_type = "epistatic"`, `effect_class = "epistatic"`, both loci in `chr`/`pos` + `chr2`/
+  `pos2`, `lod` = the pair's `lod.int` from `epistatic_peaks.csv`, `fitqtl_lod` = the interaction
+  drop-one LOD.
+  - **Interaction-term sign:** the aa coefficient's flip is the **product** of the two loci's
+    `sign_mult`. Both loci in a `scantwo` pair share the same population and trait, so the product
+    is `sign_mult(pop,trait)^2 = +1` **always** — epistatic estimates take **no** sign flip.
+    (Still spot-check one against a two-locus genotype-class-mean table before trusting it.)
+- **Add `effect_class` column** (`"main"` / `"epistatic"`); keep `estimate_type`
+  (`a`/`d`/`confounded`/`epistatic`).
+- **Replace the NA-overload with an explicit `borrowed` boolean (#2).** `TRUE` for supplemental
+  fits, `FALSE` for real peaks. `lod` = real peak LOD (NA only when borrowed); always populate
+  `fitqtl_lod`. Downstream `10` keys "borrowed" off this column, not `is.na(lod)`.
+- **Symmetric borrowing so every colocalized QTL gets a full `a` + `d` set (#4).** Replace the
+  current RIL-only supplemental block. Each population run emits **its own** rows (`cross ==
+  population`): its real peak fits (all traits it has peaks on) + epistatic rows + borrowed fits of
+  its **gene-action parameter** at every QTL position it lacks an independent peak for. Gene-action
+  parameter per population: **RIL → BLUP `a`**, **B73_BC → MPH `d`**, **Mo17_BC → MPH `d`**
+  (add a `ga_trait` field to `presets`).
+  - Union of QTL positions = `distinct(chr, pos)` over all rows of `main_effect_peaks.csv` (carry a
+    representative `ci_lo`/`ci_hi` for `10`'s colocalization). Skip positions where this population
+    already has an independent peak on its `ga_trait` (within ~5 cM).
+  - Fit each borrowed position with the **dummy-QTL** pattern from
+    [11_genome_wide_effect_scan.R](scripts/11_genome_wide_effect_scan.R#L56) `dummy_qtl_effect()`:
+    the position as a dummy QTL alongside the population's real `ga_trait` peaks (drop any within
+    `min_sep_cM = 20`) + genuine epi partners for that pop/trait, then read the dummy's estimate and
+    its drop-one LOD. Borrowed row: `borrowed = TRUE`, `lod = NA`, `estimate_type = "a"` (RIL) /
+    `"d"` (BC), `estimate = raw * sign_mult(pop, ga_trait)`, `fitqtl_lod` from the dummy.
+  - **Keep** the BC BLUP **confounded** rows (real BLUP peaks: chr6 B73, chr5 Mo17) as
+    `estimate_type = "confounded"`, `effect_class = "main"` — informational; `10` no longer derives
+    `d` from them (uses the direct MPH `d` instead).
+  - **Note:** for the MPH trait there are no genuine epi partners (all BC epistasis is same-chr
+    artifact or BLUP-only), so borrowed BC MPH fits carry no interaction terms; borrowed RIL BLUP
+    fits keep the RIL c1×c3 / c3×c5 partners.
+
+`qtl_effects.csv` columns become: `cross, trait, chr, pos, chr2, pos2, ci_lo, ci_hi, lod, estimate,
+estimate_type, effect_class, borrowed, fitqtl_lod` (`chr2`/`pos2` NA on non-epistatic rows). Use
+`dplyr::bind_rows` for the idempotent merge and make the de-dup `key()` tolerant of an old file
+lacking `chr2`/`pos2` (treat missing as `""`). Re-run all three populations to fully repopulate.
+
+## Changes to `10_qtl_gene_action.R`
+
+- **Filter to `effect_class == "main"`** before colocalization (epistatic rows have NA CIs and must
+  not pollute the connected-component `qtl_id` grouping). `a`/`d`/`confounded` rows all keep CIs and
+  cluster normally.
+- `a` from `estimate_type == "a"`; `B73_d`/`Mo17_d` from `estimate_type == "d"` per cross — now
+  populated at every QTL via borrowing, so **every** `qtl_id` with an `a` gets `B73_action` and
+  `Mo17_action`. When both a real and a borrowed value exist for a `qtl_id`, prefer the real one
+  (`arrange(borrowed, .by_group = TRUE)` then take `[1]`).
+- Add `B73_d_sig` / `Mo17_d_sig` (and optionally `a_sig`) booleans = `!borrowed`, so a reader can
+  weight borderline borrowed calls (e.g. chr5 Mo17 `od` at `d/a ≈ 1.2` is borrowed).
+- Build `sig_in` from `!borrowed & effect_class == "main"` (was `!is.na(lod)`), so it still lists
+  only independently-significant populations. `classify_action()` and the 0.2/0.8/1.2 cutoffs are
+  unchanged.
+
+## Verified preview values (read-only, use as regression checks)
+Direct borrowed-MPH `d` alongside `a` from the current `qtl_effects.csv` (final numbers will shift
+slightly with the exact epi partners / `jittermap` seed):
+
+| QTL | a (RIL) | B73 d, d/a → action | Mo17 d, d/a → action |
+|---|---|---|---|
+| chr6@245 | −1.41 | +0.47, 0.33 → **pd** (borrowed) | −0.04, ~0 → **additive** (borrowed) |
+| chr5@535 | +0.61 (borrowed) | −0.13, −0.22 → **pd** (borrowed) | +0.76, 1.23 → **od** (borrowed, borderline) |
+| chr9@100 | +1.79 | +0.07, 0.04 → **additive** (borrowed) | −0.78, −0.44 → **pd** (borrowed) |
+
+(Only chr1@480 B73 `d` and chr1@760 Mo17 `d` come from independently-significant MPH peaks; every
+other `d` above is a borrowed fit — hence the `*_d_sig` flags.)
+
+`effectplot` sign anchors that must still hold: RIL 9@100 `a ≈ +1.9` (B73/B73 89.79 > Mo17/Mo17
+85.94); RIL 6@245 `a ≈ −1.7` (B73/B73 86.27 < Mo17/Mo17 89.71).
+
+## Verification for this revision
+1. `Rscript scripts/09_estimate_qtl_effects.R RIL` then `B73_BC`, `Mo17_BC` → `qtl_effects.csv` has
+   `effect_class`/`borrowed`; epistatic rows for RIL c1×c3, c3×c5 and B73_BC c3×c8, c4×c9 with
+   finite estimate+LOD; every QTL position carries an `a` (RIL) and a `d` for both BCs; chr6 shows
+   RIL `a≈−1.4` and a clearly-labeled B73 `confounded≈+1.6`.
+2. `Rscript scripts/10_qtl_gene_action.R` → `qtl_gene_action.csv`: **all 5** `qtl_id`s have
+   `B73_action`/`Mo17_action`, matching the preview table above; `*_d_sig` flags mark real vs
+   borrowed `d`.
+
+---
+
 ## Approach
 
 Add four CLI-style numbered scripts that follow the **`07_epistatic_qtl.R` skeleton** (usage comments → `commandArgs()` with `ifelse` defaults → `presets` list keyed by `RIL`/`B73_BC`/`Mo17_BC` → shared cross-reading/RIL-conversion/numeric-pheno block → `paste0` paths → outputs under `analyses/`). Reuse the effect-estimation mechanics distilled from the legacy code rather than reinventing them.
@@ -38,6 +163,8 @@ All effects are the **substitution effect of the B73 allele on `NLB_WMD_BLUP`, d
 - Output: `analyses/epistatic_peaks.csv` — cols `cross, trait, chr1, pos1, chr2, pos2, lod.int, lod.full, int_p, sig_level, same_chr_close`.
 
 ### `09_estimate_qtl_effects.R` — additive & dominance effects at peaks (CLI: `<population>`)
+> ⚠️ **Superseded in part by the Revision 2026-07-26 section above** (epistatic-effect rows,
+> `effect_class`/`borrowed` columns, symmetric borrowing). The below is the original as-built spec.
 - Read `analyses/main_effect_peaks.csv` (strip the `"LOD "` prefix from `trait` to get the pheno column name) and, for genuine significant interactions, `analyses/epistatic_peaks.csv`.
 - Reuse `read_cross()`/RIL-conversion from [06_identify_qtl.R](scripts/06_identify_qtl.R#L17); `sim.geno(cross, step=2.5)`.
 - For each phenotype present for that population: `makeqtl` from that pheno's peaks, build the `fitqtl` formula adding `Qi:Qj` terms for any significant epistatic pairs (formula-builder from [qtl_effect_all.Rmd](scripts/get_effects/qtl_effect_all.Rmd#L69)), `fitqtl(get.ests=TRUE)`, extract estimate + drop-one LOD.
@@ -46,6 +173,9 @@ All effects are the **substitution effect of the B73 allele on `NLB_WMD_BLUP`, d
 - Output: `analyses/qtl_effects.csv` — peaks with `cross, trait, chr, pos, ci_lo, ci_hi, lod, estimate, estimate_type` (`a`/`d`/`confounded`), `fitqtl_lod`.
 
 ### `10_qtl_gene_action.R` — colocalize across populations + classify gene action (no population arg)
+> ⚠️ **Superseded in part by the Revision 2026-07-26 section above** (filter to `effect_class ==
+> "main"`; `d` from direct MPH fits at every QTL, real or borrowed; `*_d_sig` flags; every QTL gets
+> an action call). The below is the original as-built spec.
 - **Colocalization (what you did before, now automated):** the legacy [overlapping_qtl.Rmd](scripts/get_effects/overlapping_qtl.Rmd) computed CI overlaps per chromosome with `IRanges::findOverlaps` on `[ci_lo, ci_hi]`, **but then assigned the shared QTL id integers by hand** (hardcoded per-chromosome vectors) and hand-annotated prior-literature matches. This script replaces the manual id assignment with automatic connected-component grouping of overlapping CIs (still `IRanges::findOverlaps`), yielding a `qtl_id` per colocalized cluster. With only ~6 peaks and 1 trait this is small and fully automatable.
 - Join additive `a` (RIL, `estimate_type=="a"`) with dominance `d` (each BC's MPH, `estimate_type=="d"`) by `qtl_id` — all already on the B73-allele/disease-BLUP convention from `09`. Compute `B73 d/a`, `Mo17 d/a`; classify gene action with the legacy `case_when` cutoffs 0.2 / 0.8 / 1.2 (additive / partial-dominant / dominant / over- / under-dominant), direction-aware, from [qtl_effect_all.Rmd](scripts/get_effects/qtl_effect_all.Rmd#L319).
 - Output: `analyses/qtl_gene_action.csv` — combined table `qtl_id, chr, pos, a, B73_d, B73_d/a, B73_action, Mo17_d, Mo17_d/a, Mo17_action, sig_in`.
@@ -113,7 +243,10 @@ Rule for `08`: flag `same_chr_close = chr1==chr2 & abs(pos1-pos2) < ~20 cM`; onl
 ## C. Effect-convention reference values (expected sanity checks for `09`)
 Convention: **effect of the B73 allele on `NLB_WMD_BLUP`, disease scale, no flip** (positive = B73 raises BLUP). Genotype-class means from `effectplot` (after `sim.geno(step=2)`):
 - RIL 9@100: B73/B73=89.79, Mo17/Mo17=85.94 → **a = +1.93** (clean additive).
-- RIL 6@245: B73/B73 > Mo17/Mo17 (small positive a).
+- RIL 6@245: B73/B73=86.27 **<** Mo17/Mo17=89.71 → **a ≈ −1.7** (B73 allele lowers disease; a is
+  **negative**). *(Corrected 2026-07-26 — an earlier draft here wrongly said "small positive a";
+  the data show B73/B73 is the lower/more-resistant class. This is why the B73_BC `d − a` contrast
+  at 6@245 comes out positive — see the revision section above, problem #3.)*
 - B73_BC 6@245 (BLUP): B73/B73=87.77, B73/Mo17=89.84 → contrast +2.07 = **d − a** (confounded).
 - B73_BC 1@480 (MPH): "hom"=3.94, het=5.27 → positive **d**.
 - Mo17_BC 5@535 (BLUP): B73/Mo17=94.46, Mo17/Mo17=92.35 → contrast −2.11 = **−a − d** (confounded; remember internal `AA`=het).
