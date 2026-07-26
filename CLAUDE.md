@@ -35,18 +35,28 @@ Each stage writes files consumed by the next.
 6. **`06_identify_qtl.R`** — Loads the MQM `.RDS`, converts to R/qtl2, and calls main-effect QTL
    peaks with `qtl2::find_peaks` against per-trait permutation thresholds, per population.
    Writes `analyses/main_effect_peaks.csv`.
-7. **`07_epistatic_qtl.R`** — R/qtl `scantwo` two-QTL / epistasis scan with permutations.
+7. **`07_epistatic_qtl.R`** — R/qtl `scantwo` two-QTL / epistasis scan with batched permutations.
+   Unlike 05–06, this is a **CLI**: `Rscript scripts/07_epistatic_qtl.R <population> [permutations]
+   [cores]` where `<population>` is `RIL`, `B73_BC`, or `Mo17_BC` (permutations default 100, cores
+   default 4). A `presets` list holds the per-population `input_file`/`genotype`/`na.strings`/
+   `crosstype`/`phenos`. Both the main scan and the permutations are **resumable**: the main scan
+   is cached at `analyses/qtl_analyses/tmp/<name>.scantwo.tmp.RDS`, and permutations run in batches
+   of 10 to `tmp/<name>.trait.<pheno>.batch.<j>.scantwo.perm.tmp` (existing files are skipped on
+   re-run). Writes `analyses/qtl_analyses/<name>_scantwo.RDS` (a list of `scan` + `permutations`).
 
 ## How these scripts are run
 
 - **Run from the project root** (`~/projects/nlb_mdh`). Scripts mix root-relative paths
   (`analyses/...`, `data/...`) with hardcoded absolute paths (`~/projects/nlb_mdh/...`, and a
   few legacy `~/projects/mdh_qtl/...` inputs), so the working directory matters.
-- **Interactive, per-population execution.** Scripts 05–07 have their `commandArgs()` CLI parsing
-  commented out. The active pattern is to re-assign the config variables — `input_file`,
+- **Interactive, per-population execution (05–06).** Scripts 05 and 06 have their `commandArgs()`
+  CLI parsing commented out. The active pattern is to re-assign the config variables — `input_file`,
   `genotype`, `alleles`, `na.strings`, `crosstype`, `phenos`, `output_dir`, `output_name` — in a
   block per population and run that block interactively. These scripts are **not** meant to be
   `source()`-d top to bottom: later blocks overwrite the same variables, so the last block wins.
+- **CLI execution (07).** Script 07 has been converted to a proper CLI driven by `commandArgs()`
+  and a `presets` list — pass the population (and optionally permutation count and core count) as
+  arguments instead of editing the script (see step 7 above).
 - A `snakefile.smk` exists but the numbered scripts are the current workflow.
 
 ## Conventions & glossary
