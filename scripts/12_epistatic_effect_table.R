@@ -45,67 +45,105 @@ read_cross <- function(input_file, genotype, na.strings, crosstype) {
 epistatic_peaks <- read.csv(epistatic_peaks_file, stringsAsFactors = FALSE)
 sig_pairs <- epistatic_peaks %>% filter(sig_level == "0.05", !same_chr_close)
 
+# Load every population's cross once (all three are needed for the faceted
+# figures, which show each significant pair's effect across RIL / B73 BC /
+# Mo17 BC even where the pair is only significant in one of them).
+crosses <- lapply(names(presets), function(pop) {
+  p <- presets[[pop]]
+  sim.geno(read_cross(p$input_file, p$genotype, p$na.strings, p$crosstype), step = 2.5)
+})
+names(crosses) <- names(presets)
+
+# Genotype-class means/SEs for one pair in one population, as B73-allele-count
+# cells centered on that population's trait mean. Returns NULL if effectplot
+# can't be computed (e.g. a trait that isn't meaningful in this population).
+pair_effects <- function(cross, gm_map, trait, chr1, pos1, chr2, pos2) {
+  gm <- mean(cross$pheno[[trait]], na.rm = TRUE)
+  ep <- tryCatch(
+    effectplot(cross, pheno.col = match(trait, colnames(cross$pheno)),
+               mname1 = sprintf("%s@%s", chr1, pos1),
+               mname2 = sprintf("%s@%s", chr2, pos2),
+               geno1 = gm_map$labels, geno2 = gm_map$labels, draw = FALSE),
+    error = function(e) NULL)
+  if (is.null(ep)) return(NULL)
+  cells <- data.frame()
+  for (r in seq_along(gm_map$counts)) {
+    for (c in seq_along(gm_map$counts)) {
+      cells <- bind_rows(cells, data.frame(
+        geno1 = gm_map$counts[r], geno2 = gm_map$counts[c],
+        geno1_label = gm_map$labels[r], geno2_label = gm_map$labels[c],
+        mean_dev = ep$Means[r, c] - gm,
+        se = ep$SEs[r, c]
+      ))
+    }
+  }
+  cells
+}
+
+# --- data table: genotype-class effects for each pair in its significant
+# population only (drives the long/wide CSV outputs) ---
 long_rows <- data.frame()
 for (population in unique(sig_pairs$cross)) {
-  preset <- presets[[population]]
+  cross <- crosses[[population]]
   gm_map <- geno_map[[population]]
-  cross <- sim.geno(read_cross(preset$input_file, preset$genotype, preset$na.strings,
-                                preset$crosstype), step = 2.5)
-
   pop_pairs <- sig_pairs %>% filter(cross == population)
-  for (trait in unique(pop_pairs$trait)) {
-    gm <- mean(cross$pheno[[trait]], na.rm = TRUE)
-    trait_pairs <- pop_pairs %>% filter(trait == !!trait)
-
-    for (i in seq_len(nrow(trait_pairs))) {
-      pair <- trait_pairs[i, ]
-      ep <- effectplot(cross, pheno.col = match(trait, colnames(cross$pheno)),
-                        mname1 = sprintf("%s@%s", pair$chr1, pair$pos1),
-                        mname2 = sprintf("%s@%s", pair$chr2, pair$pos2),
-                        geno1 = gm_map$labels, geno2 = gm_map$labels, draw = FALSE)
-
-      pair_cells <- data.frame()
-      for (r in seq_along(gm_map$counts)) {
-        for (c in seq_along(gm_map$counts)) {
-          pair_cells <- bind_rows(pair_cells, data.frame(
-            geno1 = gm_map$counts[r], geno2 = gm_map$counts[c],
-            geno1_label = gm_map$labels[r], geno2_label = gm_map$labels[c],
-            mean_dev = ep$Means[r, c] - gm,
-            se = ep$SEs[r, c]
-          ))
-        }
-      }
-
-      long_rows <- bind_rows(long_rows, data.frame(
-        cross = population, trait = trait,
-        chr1 = pair$chr1, pos1 = pair$pos1,
-        chr2 = pair$chr2, pos2 = pair$pos2,
-        geno1 = pair_cells$geno1, geno2 = pair_cells$geno2,
-        mean_dev = pair_cells$mean_dev, se = pair_cells$se,
-        lod_full = pair$lod.full, lod_int = pair$lod.int,
-        sig_level = pair$sig_level
-      ))
-
-      locus1_lab <- sprintf("Chr%s @ %.1f", pair$chr1, pair$pos1)
-      locus2_lab <- sprintf("Chr%s @ %.1f", pair$chr2, pair$pos2)
-      plot <- ggplot(pair_cells, aes(x = geno1_label, y = mean_dev,
-                                      color = geno2_label, group = geno2_label)) +
-        geom_line(linewidth = 1) +
-        geom_point(size = 2) +
-        geom_errorbar(aes(ymin = mean_dev - se, ymax = mean_dev + se), width = 0.1) +
-        labs(x = locus1_lab, y = paste(trait, "deviation from population mean"),
-             color = locus2_lab,
-             title = sprintf("%s epistasis: %s x %s", population, locus1_lab, locus2_lab)) +
-        theme_bw()
-
-      fig_file <- sprintf("figures/epistasis_%s_chr%s-%.1f_chr%s-%.1f.pdf",
-                           population, pair$chr1, pair$pos1, pair$chr2, pair$pos2)
-      ggsave(fig_file, plot, width = 6, height = 5)
-    }
+  for (i in seq_len(nrow(pop_pairs))) {
+    pair <- pop_pairs[i, ]
+    cells <- pair_effects(cross, gm_map, pair$trait,
+                          pair$chr1, pair$pos1, pair$chr2, pair$pos2)
+    long_rows <- bind_rows(long_rows, data.frame(
+      cross = population, trait = pair$trait,
+      chr1 = pair$chr1, pos1 = pair$pos1,
+      chr2 = pair$chr2, pos2 = pair$pos2,
+      geno1 = cells$geno1, geno2 = cells$geno2,
+      mean_dev = cells$mean_dev, se = cells$se,
+      lod_full = pair$lod.full, lod_int = pair$lod.int,
+      sig_level = pair$sig_level
+    ))
   }
 }
 
 write.csv(long_rows, long_output_file, row.names = FALSE)
+
+# --- figures: one faceted plot per pair, matching mdh_qtl/figures/epi_qtl_1.pdf
+# (panels RIL / B73 BC / Mo17 BC, default grey theme, size-20 text, x-labels
+# rotated 45 deg; x = second locus genotype, colour = first locus genotype,
+# y = mean deviation from the population mean). Each pair's effect is computed
+# in all three populations regardless of where it was significant. ---
+geno_levels <- c("B73/B73", "B73/Mo17", "Mo17/Mo17")
+pop_labels <- c(RIL = "RIL", B73_BC = "B73 BC", Mo17_BC = "Mo17 BC")
+
+unique_pairs <- sig_pairs %>% distinct(cross, trait, chr1, pos1, chr2, pos2)
+for (i in seq_len(nrow(unique_pairs))) {
+  pair <- unique_pairs[i, ]
+  fig_df <- data.frame()
+  for (population in names(crosses)) {
+    cells <- pair_effects(crosses[[population]], geno_map[[population]], pair$trait,
+                          pair$chr1, pair$pos1, pair$chr2, pair$pos2)
+    if (is.null(cells)) next
+    cells$Population <- pop_labels[[population]]
+    fig_df <- bind_rows(fig_df, cells)
+  }
+  fig_df$Population <- factor(fig_df$Population, levels = pop_labels)
+  fig_df$geno1_label <- factor(fig_df$geno1_label, levels = geno_levels)
+  fig_df$geno2_label <- factor(fig_df$geno2_label, levels = geno_levels)
+
+  locus1_lab <- sprintf("Chr %s %.1f IcM", pair$chr1, pair$pos1)
+  locus2_lab <- sprintf("Chr %s %.1f IcM", pair$chr2, pair$pos2)
+  plot <- ggplot(fig_df, aes(x = geno2_label, y = mean_dev,
+                             color = geno1_label, group = geno1_label)) +
+    geom_point() +
+    geom_line() +
+    geom_errorbar(aes(ymin = mean_dev - se, ymax = mean_dev + se), width = 0.2) +
+    labs(x = locus2_lab, y = "Mean", color = locus1_lab) +
+    theme(text = element_text(size = 20),
+          axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+    facet_wrap(vars(Population), ncol = 3)
+
+  fig_file <- sprintf("figures/epistasis_%s_chr%s-%.1f_chr%s-%.1f.pdf",
+                       pair$cross, pair$chr1, pair$pos1, pair$chr2, pair$pos2)
+  ggsave(fig_file, plot, width = 10, height = 6)
+}
 
 # wide publication-style table: nine genotype cells in fixed order, formatted
 # "mean_dev +/- se" rounded to 2dp; only cells populated for a given population

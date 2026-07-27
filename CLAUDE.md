@@ -98,9 +98,13 @@ Each stage writes files consumed by the next.
     Writes `analyses/epistatic_effects_long.csv` (tidy, one row per genotype cell) and
     `analyses/epistatic_effects_wide.csv` (publication layout, one row per pair, nine genotype
     columns `2_2...0_0` formatted `"mean_dev +/- se"`, ASCII `+/-` rather than `±` since this
-    environment has no UTF-8 locale). Also saves one interaction plot per pair (genotype-class
-    mean ± SE, locus1 on x, locus2 as color) to
-    `figures/epistasis_<cross>_chr<chr1>-<pos1>_chr<chr2>-<pos2>.pdf`.
+    environment has no UTF-8 locale). Also saves one interaction plot per pair to
+    `figures/epistasis_<cross>_chr<chr1>-<pos1>_chr<chr2>-<pos2>.pdf`, styled to match the published
+    `mdh_qtl/figures/epi_qtl_1.pdf`: a single figure faceted into RIL / B73 BC / Mo17 BC panels
+    (each pair's genotype-class mean ± SE is recomputed in all three populations via `pair_effects()`,
+    not just the one where it was significant), default grey theme, size-20 text, x-labels rotated
+    45°, second locus genotype on x, first locus genotype as color, y = mean deviation from the
+    population mean.
 
 ## How these scripts are run
 
