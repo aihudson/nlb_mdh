@@ -117,6 +117,19 @@ Each stage writes files consumed by the next.
     `figures/nlb_circos_effect.pdf` (same five tracks as signed effect size, masked to black/red by
     the same significance grid, dashed zero baseline), and `figures/nlb_circos_paper.pdf` (both
     stacked in one page with A/B labels and a legend).
+14. **`14_per_chromosome_qtl_plots.R`** — No population argument; per-chromosome
+    companion to `13`'s circos plots, styled after the published
+    `mdh_qtl/figures/chr3_slb_frreal.pdf`. Reuses `13`'s `get_thr()` and
+    `build_lod_qtl()` loader (restricted to the 3 main slots — RIL, B73 BC,
+    Mo17 BC; drops the B73/Mo17 MPH slots) to interpolate each population's MQM
+    LOD onto the `11` effect grid, then renders one PDF per chromosome that
+    carries a peak in `analyses/main_effect_peaks.csv`: a 3-row (population) ×
+    2-column (Effect left, LOD right) `ggplot`/`cowplot` grid, black line vs.
+    genetic position, red dotted verticals at that chromosome's peak position(s)
+    (shown on every row regardless of which population/trait the peak came
+    from, matching `13`'s cross-track peak markers), a dotted zero baseline on
+    Effect panels, and a solid per-population LOD threshold line. Writes
+    `figures/chr<N>_nlb.pdf`, one per QTL-carrying chromosome.
 
 ## How these scripts are run
 
