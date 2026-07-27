@@ -98,7 +98,9 @@ Each stage writes files consumed by the next.
     Writes `analyses/epistatic_effects_long.csv` (tidy, one row per genotype cell) and
     `analyses/epistatic_effects_wide.csv` (publication layout, one row per pair, nine genotype
     columns `2_2...0_0` formatted `"mean_dev +/- se"`, ASCII `+/-` rather than `±` since this
-    environment has no UTF-8 locale).
+    environment has no UTF-8 locale). Also saves one interaction plot per pair (genotype-class
+    mean ± SE, locus1 on x, locus2 as color) to
+    `figures/epistasis_<cross>_chr<chr1>-<pos1>_chr<chr2>-<pos2>.pdf`.
 
 ## How these scripts are run
 

@@ -1,5 +1,6 @@
 require(qtl)
 require(dplyr)
+require(ggplot2)
 
 # Rscript scripts/12_epistatic_effect_table.R
 # No population arg -- reads all significant epistatic pairs from
@@ -63,20 +64,43 @@ for (population in unique(sig_pairs$cross)) {
                         mname2 = sprintf("%s@%s", pair$chr2, pair$pos2),
                         geno1 = gm_map$labels, geno2 = gm_map$labels, draw = FALSE)
 
+      pair_cells <- data.frame()
       for (r in seq_along(gm_map$counts)) {
         for (c in seq_along(gm_map$counts)) {
-          long_rows <- bind_rows(long_rows, data.frame(
-            cross = population, trait = trait,
-            chr1 = pair$chr1, pos1 = pair$pos1,
-            chr2 = pair$chr2, pos2 = pair$pos2,
+          pair_cells <- bind_rows(pair_cells, data.frame(
             geno1 = gm_map$counts[r], geno2 = gm_map$counts[c],
+            geno1_label = gm_map$labels[r], geno2_label = gm_map$labels[c],
             mean_dev = ep$Means[r, c] - gm,
-            se = ep$SEs[r, c],
-            lod_full = pair$lod.full, lod_int = pair$lod.int,
-            sig_level = pair$sig_level
+            se = ep$SEs[r, c]
           ))
         }
       }
+
+      long_rows <- bind_rows(long_rows, data.frame(
+        cross = population, trait = trait,
+        chr1 = pair$chr1, pos1 = pair$pos1,
+        chr2 = pair$chr2, pos2 = pair$pos2,
+        geno1 = pair_cells$geno1, geno2 = pair_cells$geno2,
+        mean_dev = pair_cells$mean_dev, se = pair_cells$se,
+        lod_full = pair$lod.full, lod_int = pair$lod.int,
+        sig_level = pair$sig_level
+      ))
+
+      locus1_lab <- sprintf("Chr%s @ %.1f", pair$chr1, pair$pos1)
+      locus2_lab <- sprintf("Chr%s @ %.1f", pair$chr2, pair$pos2)
+      plot <- ggplot(pair_cells, aes(x = geno1_label, y = mean_dev,
+                                      color = geno2_label, group = geno2_label)) +
+        geom_line(linewidth = 1) +
+        geom_point(size = 2) +
+        geom_errorbar(aes(ymin = mean_dev - se, ymax = mean_dev + se), width = 0.1) +
+        labs(x = locus1_lab, y = paste(trait, "deviation from population mean"),
+             color = locus2_lab,
+             title = sprintf("%s epistasis: %s x %s", population, locus1_lab, locus2_lab)) +
+        theme_bw()
+
+      fig_file <- sprintf("figures/epistasis_%s_chr%s-%.1f_chr%s-%.1f.pdf",
+                           population, pair$chr1, pair$pos1, pair$chr2, pair$pos2)
+      ggsave(fig_file, plot, width = 6, height = 5)
     }
   }
 }
