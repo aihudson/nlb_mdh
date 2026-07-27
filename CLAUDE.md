@@ -88,6 +88,17 @@ Each stage writes files consumed by the next.
     `NLB_mo17_effect`, `NLB_mo17_mph_effect`) — plot effect vs. LOD along the genome. Positions
     are rounded to 4 decimals so repeated per-population runs join cleanly on `(chr, pos)`
     despite `write.csv`/`read.csv` precision loss on re-read.
+12. **`12_epistatic_effect_table.R`** — No population arg; builds a genotype-class effect table
+    for the significant epistatic pairs (`sig_level=="0.05" & !same_chr_close` in
+    `epistatic_peaks.csv`, currently 6 pairs: 3 RIL + 3 B73_BC). For each pair, calls raw R/qtl
+    `effectplot()` genotype-class means/SEs (no fitqtl / main-effect adjustment — faithful to the
+    original published table this distills), centers on the population mean, and reports
+    B73-allele-count genotype cells (`RIL` 0/2, `B73_BC` 1/2, `Mo17_BC` 0/1 — per-population
+    label→count map handles R/qtl's internal-code trap, see `plans/epistatic_effect_table.md`).
+    Writes `analyses/epistatic_effects_long.csv` (tidy, one row per genotype cell) and
+    `analyses/epistatic_effects_wide.csv` (publication layout, one row per pair, nine genotype
+    columns `2_2...0_0` formatted `"mean_dev +/- se"`, ASCII `+/-` rather than `±` since this
+    environment has no UTF-8 locale).
 
 ## How these scripts are run
 
