@@ -1,0 +1,393 @@
+---
+title: "Plot QTL effects in R/QTL"
+output: html_notebook
+---
+
+### Loading packages
+
+```{r}
+library(dplyr)
+library(conflicted)
+library(qtl)
+library(qtl2)
+library(qtl2convert)
+
+conflicts_prefer(base::as.data.frame, dplyr::select, dplyr::filter, dplyr::mutate, dplyr::arrange)
+```
+
+### Reading in data
+
+
+```{r, setup}
+knitr::opts_knit$set(root.dir = '~/projects/mdh_qtl/')
+combined_qtl <- read.csv("analyses/combined_qtl_overlap.csv")
+source("scripts/get_effect_mqm.R")
+```
+
+```{r}
+
+ril_blues <- read_cross2(file = "data/control_file_ril_generic.yaml")
+b73_blues <- read_cross2(file = "data/control_file_b73_hybrids_generic.yaml")
+mo17_blues <- read_cross2(file = "data/control_file_mo17_hybrids_generic.yaml")
+b73_results <- readRDS(file = "data/B73_hybrids_rqtl.RDS")
+mo17_results <- readRDS(file = "data/Mo17_hybrids_rqtl.RDS")
+ril_results <-readRDS(file = "data/RIL_rqtl.RDS")
+b73_mph_results <- readRDS(file = "data/B73_hybrids_mph_rqtl.RDS")
+mo17_mph_results <- readRDS(file = "data/Mo17_hybrids_mph_rqtl.RDS")
+
+b73_rqtl_cross <- readRDS("data/b73_rqtl_cross.RDS")
+mo17_rqtl_cross <- readRDS("data/mo17_rqtl_cross.RDS")
+ril_rqtl_cross <- readRDS("data/ril_rqtl_cross.RDS")
+```
+
+
+```{r}
+# AA is B73, BB is Mo17
+effectplot(ril_rqtl_cross, 3, mname1 = "5@300")
+# AA is B73, AB is B73/Mo17
+effectplot(b73_rqtl_cross, 4, mname1 = "5@300")
+# AB is Mo17, AA is B73/Mo17
+effectplot(mo17_rqtl_cross, 3, mname1 = "5@300")
+effectplot(mo17_rqtl_cross, 4, mname1 = "5@300")
+effectplot(mo17_rqtl_cross, 3, mname1 = "9@195")
+effectplot(b73_rqtl_cross, 1, mname1 = "3@165")
+effectplot(mo17_rqtl_cross, 1, mname1 = "3@165")
+effectplot(ril_rqtl_cross, 1, mname1 = "3@165")
+effectplot(b73_rqtl_cross, 2, mname1 = "3@165")
+effectplot(mo17_rqtl_cross, 2, mname1 = "3@165")
+
+effectplot(ril_rqtl_cross, 9, mname1 = "3@272.5")
+effectplot(b73_rqtl_cross, 13, mname1 = "3@272.5")
+effectplot(b73_rqtl_cross, 14, mname1 = "3@272.5")
+effectplot(mo17_rqtl_cross, 9, mname1 = "3@272.5")
+effectplot(mo17_rqtl_cross, 10, mname1 = "3@272.5")
+
+
+effectplot(ril_rqtl_cross, 5, mname1 = "8@315")
+effectplot(b73_rqtl_cross, 7, mname1 = "8@315")
+effectplot(mo17_rqtl_cross, 5, mname1 = "8@315")
+
+effectplot(ril_rqtl_cross, 1, mname1 = "7@232.5")
+effectplot(b73_rqtl_cross, 1, mname1 = "7@232.5")
+effectplot(mo17_rqtl_cross, 1, mname1 = "7@232.5")
+
+effectplot(ril_rqtl_cross, 3, mname1 = "3@665")
+effectplot(b73_rqtl_cross, 4, mname1 = "3@665")
+effectplot(mo17_rqtl_cross, 3, mname1 = "3@665")
+
+#npi449a is on chr5
+# In RILs, if you have B73 allele at 5@300, it doesn't matter much what your allele at 1@891.6 is. But if you have Mo17 allele at 5@300, it's bad to have B73 allele at 1@891.6 and good to have Mo17 allele.
+effectplot(ril_rqtl_cross, 3, mname1 = "5@300", mname2 = "1@891.6", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+# In B73 BC, If you are B73/B73 at 5@300, it doesn't matter what your allele at 1@891 is. If you are B73/Mo17 at 5@300, being B73/Mo17 at 1@891.6 is beneficial. 
+effectplot(b73_rqtl_cross, 4, mname1 = "5@300", mname2 = "1@891.6",geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+# In Mo17 BC, if you are Mo17/Mo17 at 1@891.6, it doesn't matter what your genotype at 5@300 is. If your B73/Mo17 at 1@891.6, it's good to be B73/Mo17 at 5@300, but bad/neutral to be Mo17/Mo17.
+effectplot(mo17_rqtl_cross, 3, mname1 = "5@300", mname2 = "1@891.6",geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+effectplot(mo17_rqtl_cross, 4, mname1 = "5@300", mname2 = "1@891.6")
+# In Mo17 BC, having a B73 allele reduces heterosis. 
+effectplot(mo17_rqtl_cross, 4, mname1 = "5@300")
+# In B73 BC, having a Mo17 allele increases heterosis.
+effectplot(b73_rqtl_cross, 5, mname1 = "5@300")
+effectplot(b73_rqtl_cross, 5, mname1 = "5@300", mname2 = "1@891.6")
+effectplot(b73_rqtl_cross, 4, mname1 = "2@73.1", mname2 = "3@497")
+
+
+# Looking at epistatic QTL 1 (mname1 is in the box)
+# beneficial to have Mo17 at 1@839.7002, if you have B73 there better to have B73 at 1@82.60002 as well but still not as good
+effectplot(ril_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+# In B73 BC, being B73 at both loci is equally good as being het at both loci, but being B73 at 1@839.7002 and het at 1@82.60002 is much worse
+effectplot(b73_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+# In Mo17 BC, all genotypes are good except Mo17/Mo17 at 1@839 and het at 1@82
+effectplot(mo17_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002" ,geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+
+
+# make a figure 
+qtl_plot <- effectplot(ril_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+df <- data.frame("Chr 1 82.6 IcM"=c("B73/B73","Mo17/Mo17","B73/B73","Mo17/Mo17"), "Chr 1 839.7 IcM"=c("B73/B73", "B73/B73","Mo17/Mo17","Mo17/Mo17"), Mean=as.numeric(qtl_plot$Means)--0.302, SE=as.numeric(qtl_plot$SEs), Population = "RIL", check.names = FALSE)
+
+plot1 <- ggplot(df, aes(color = `QTL 1_82.6`, x = `QTL 1_839.7`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`QTL 1_82.6`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20)) 
+
+qtl_plot <- effectplot(b73_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+df <- rbind(data.frame("Chr 1 82.6 IcM"=c("B73/B73","B73/Mo17","B73/B73","B73/Mo17"), "Chr 1 839.7 IcM"=c("B73/B73", "B73/B73","B73/Mo17","B73/Mo17"), Mean=as.numeric(qtl_plot$Means)-5.748--0.524,  SE=as.numeric(qtl_plot$SEs),Population = "B73 BC", check.names = FALSE), df)
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002" ,geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("Chr 1 82.6 IcM"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "Chr 1 839.7 IcM"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=as.numeric(qtl_plot$Means)-0.945, SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+plot2 <- ggplot(df, aes(color = `QTL 1_82.6`, x = `QTL 1_839.7`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`QTL 1_82.6`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20)) 
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002" ,geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("QTL 1_82.6"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "QTL 1_839.7"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means), scale = FALSE), SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+df$Population <- factor(df$Population, levels = c("RIL", "B73 BC", "Mo17 BC"))
+
+
+pdf("figures/epi_qtl_1.pdf", width = 10)
+ggplot(df, aes(color = `Chr 1 82.6 IcM`, x = `Chr 1 839.7 IcM`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`Chr 1 82.6 IcM`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(vars(Population), ncol = 3) 
+dev.off()
+
+
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 1, mname1 = "1@82.60002", mname2 = "1@839.7002" ,geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("QTL 1_82.6"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "QTL 1_839.7"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means), scale = FALSE), SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+df$Population <- factor(df$Population, levels = c("RIL", "B73 BC", "Mo17 BC"))
+
+
+pdf("figures/epi_qtl_1.pdf", width = 10)
+ggplot(df, aes(color = `QTL 1_82.6`, x = `QTL 1_839.7`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`QTL 1_82.6`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(vars(Population), ncol = 3) 
+dev.off()
+
+
+plot3 <- ggplot(df, aes(color = `QTL 1_82.6`, x = `QTL 1_839.7`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`QTL 1_82.6`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20)) 
+
+plot_grid(plot1, plot2,plot3, labels = c('RIL', 'B73 BC', 'Mo17BC'), label_size = 12, ncol = 1)
+
+
+
+# Looking at epistatic QTL 32 (mname1 is in the box)
+# In RILs, there is a crossing rxn norm. If you're B73 at 4@52.30001, doesn't matter much your genotype at other site. But if you're Mo17, need to match. Best genotype by far is Mo17 at both loci. 
+effectplot(ril_rqtl_cross, 1, mname1 = "4@52.30001", mname2 = "8@133.0000", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+# Same as for RILs
+effectplot(b73_rqtl_cross, 1, mname1 = "4@52.30001", mname2 = "8@133.0000", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+#   Same as for RILs 
+effectplot(mo17_rqtl_cross, 1,  mname1 = "4@52.30001", mname2 = "8@133.0000",geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+
+# Looking at epistatic QTL 36 (mname1 is in the box)
+# In RILs, doesn't matter 
+effectplot(ril_rqtl_cross, 3, mname1 = "5@303.90008", mname2 = "6@357.1001", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+# In B73 BC, if you're het at 6@357.1001 doesn't matter. If you're B73, need to be het at 5@303.90008 (difference of like 0.25)  
+effectplot(b73_rqtl_cross, 4, mname1 = "5@303.90008", mname2 = "6@357.1001", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+#  In Mo17 BC, being B73/Mo17 at 5@303.90008 good, not much evidence of effect at other locus or epistasis.
+effectplot(mo17_rqtl_cross, 3,  mname1 = "5@303.90008", mname2 = "6@357.1001",geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+effectplot(b73_rqtl_cross, 5, mname1 = "5@303.90008", mname2 = "6@357.1001")
+effectplot(mo17_rqtl_cross, 4,  mname1 = "5@303.90008", mname2 = "6@357.1001",geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+
+
+# Looking at epistasis with chr 1 162.5 (mname1 is in the box)
+# ChsK1 Mo17 always good
+effectplot(ril_rqtl_cross, 1, mname1 = "3@166.9", mname2 = "3@410.4")
+effectplot(ril_rqtl_cross, 1, mname1 = "3@162.5", mname2 = "3@410.4")
+# 
+effectplot(b73_rqtl_cross, 1, mname1 = "3@166.9", mname2 = "3@410.4")
+effectplot(b73_rqtl_cross, 1, mname1 = "3@162.5", mname2 = "3@410.4")
+#  
+effectplot(mo17_rqtl_cross, 1,  "3@166.9", mname2 = "3@410.4")
+effectplot(mo17_rqtl_cross, 1,  "3@162.5", mname2 = "3@410.4")
+
+# Looking at epistasis with chr 1 162.5 (mname1 is in the box)
+# ChsK1 Mo17 always good
+effectplot(ril_rqtl_cross, 1, mname1 = "3@166.9", mname2 = "3@410.4")
+effectplot(ril_rqtl_cross, 1, mname1 = "3@162.5", mname2 = "3@190")
+# 
+effectplot(b73_rqtl_cross, 1, mname1 = "3@166.9", mname2 = "3@410.4")
+effectplot(b73_rqtl_cross, 1, mname1 = "3@162.5", mname2 = "3@190")
+#  
+effectplot(mo17_rqtl_cross, 1,  "3@166.9", mname2 = "3@410.4")
+effectplot(mo17_rqtl_cross, 1,  "3@162.5", mname2 = "3@190")
+
+
+# Looking at epistsis with chr 3 665 (mname1 is in the box)
+# Maybe each additional copy of B73 at 3@663.1 interacts negatively with each additional copy of Mo17 at 9@514.9?
+# In RILs, being Mo17 at 9@514.9 and B73 at 3@663.1 is bad, everything else okay
+effectplot(ril_rqtl_cross, 3, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+#  Being het at both best by quite a bit
+effectplot(b73_rqtl_cross, 4, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+#  Being Mo17/Mo17 is best, Being Mo17 at 9@514.9 and het at 3@663.1 bad
+effectplot(mo17_rqtl_cross, 3,  mname1 = "3@663.1", mname2 = "9@514.9",geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+
+
+effectplot(mo17_rqtl_cross, 5,  mname1 = "8@305.6", mname2 = "9@202.0",geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+
+
+
+effectplot(b73_rqtl_cross, 13, mname1 = "9@285")
+effectplot(mo17_rqtl_cross, 9, mname1 = "9@285")
+effectplot(ril_rqtl_cross, 9, mname1 = "9@285")
+
+effectplot(ril_rqtl_cross, 3, mname1 = "1@350")
+
+
+cross, trait, blues_result, blues_perms, rqtl_cross, peaks
+b73_blues, "SLB_WMD_BLUE", b73_results[[1]][[1]], b73_perms[[1]], b73_rqtl_cross
+blues <- b73_blues
+trait <- "GLS_WMD_BLUE"
+blues_result <- b73_results[[1]][[1]]
+b73_perms
+ blues <- cross 
+  #map <- insert_pseudomarkers(map=blues$gmap, step=1)
+  map <- blues_result$map
+  blues_pr <- calc_genoprob(cross=blues, map=map, error_prob=0.002)
+  
+  pheno <- blues$pheno[,trait, drop = FALSE]
+  
+  blues_out <- blues_result$scan1
+  plot_scan1(blues_out, map = map)
+```
+### Figure for second epi qtl
+```{r}
+# make a figure 
+qtl_plot <- effectplot(ril_rqtl_cross, 3, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+df <- data.frame("Chr 5 303.3  IcM"=c("B73/B73","Mo17/Mo17","B73/B73","Mo17/Mo17"), "Chr 6 357.1 IcM"=c("B73/B73", "B73/B73","Mo17/Mo17","Mo17/Mo17"), Mean=as.numeric(qtl_plot$Means)--0.7067, SE=as.numeric(qtl_plot$SEs), Population = "RIL", check.names = FALSE)
+
+
+
+qtl_plot <- effectplot(b73_rqtl_cross, 4, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+df <- rbind(data.frame("Chr 5 303.3  IcM"=c("B73/B73","B73/Mo17","B73/B73","B73/Mo17"), "Chr 6 357.1 IcM"=c("B73/B73", "B73/B73","B73/Mo17","B73/Mo17"), Mean=as.numeric(qtl_plot$Means)-5.215,  SE=as.numeric(qtl_plot$SEs),Population = "B73 BC", check.names = FALSE), df)
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 3, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("Chr 5 303.3  IcM"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "Chr 6 357.1 IcM"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=as.numeric(qtl_plot$Means)-0.7360 , SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+
+df$Population <- factor(df$Population, levels = c("RIL", "B73 BC", "Mo17 BC"))
+
+
+pdf("figures/epi_qtl_2.pdf", width = 10)
+ggplot(df, aes(color = `Chr 5 303.3  IcM`, x = `Chr 6 357.1 IcM`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`Chr 5 303.3  IcM`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(vars(Population), ncol = 3) 
+dev.off()
+```
+
+### Figure for second epi qtl in SLB
+```{r}
+# make a figure 
+qtl_plot <- effectplot(ril_rqtl_cross, 1, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+df <- data.frame("Chr 5 303.3  IcM"=c("B73/B73","Mo17/Mo17","B73/B73","Mo17/Mo17"), "Chr 6 357.1 IcM"=c("B73/B73", "B73/B73","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE), SE=as.numeric(qtl_plot$SEs), Population = "RIL", check.names = FALSE)
+
+
+
+qtl_plot <- effectplot(b73_rqtl_cross, 1, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+df <- rbind(data.frame("Chr 5 303.3  IcM"=c("B73/B73","B73/Mo17","B73/B73","B73/Mo17"), "Chr 6 357.1 IcM"=c("B73/B73", "B73/B73","B73/Mo17","B73/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE),  SE=as.numeric(qtl_plot$SEs),Population = "B73 BC", check.names = FALSE), df)
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 1, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("Chr 5 303.3  IcM"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "Chr 6 357.1 IcM"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE) , SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+
+df$Population <- factor(df$Population, levels = c("RIL", "B73 BC", "Mo17 BC"))
+
+
+pdf("figures/epi_qtl_2_slb.pdf", width = 10)
+ggplot(df, aes(color = `Chr 5 303.3  IcM`, x = `Chr 6 357.1 IcM`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`Chr 5 303.3  IcM`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(vars(Population), ncol = 3) 
+dev.off()
+```
+
+### Figure for epi qtl on chr 3 for GLS
+```{r}
+# make a figure 
+qtl_plot <- effectplot(ril_rqtl_cross, 1, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+df <- data.frame("Chr 5 303.3  IcM"=c("B73/B73","Mo17/Mo17","B73/B73","Mo17/Mo17"), "Chr 6 357.1 IcM"=c("B73/B73", "B73/B73","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE), SE=as.numeric(qtl_plot$SEs), Population = "RIL", check.names = FALSE)
+
+
+
+qtl_plot <- effectplot(b73_rqtl_cross, 1, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+df <- rbind(data.frame("Chr 5 303.3  IcM"=c("B73/B73","B73/Mo17","B73/B73","B73/Mo17"), "Chr 6 357.1 IcM"=c("B73/B73", "B73/B73","B73/Mo17","B73/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE),  SE=as.numeric(qtl_plot$SEs),Population = "B73 BC", check.names = FALSE), df)
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 1, mname1 = "5@303.3", mname2 = "6@357.1", geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("Chr 5 303.3  IcM"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "Chr 6 357.1 IcM"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE) , SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+
+df$Population <- factor(df$Population, levels = c("RIL", "B73 BC", "Mo17 BC"))
+
+
+pdf("figures/epi_qtl_2_slb.pdf", width = 10)
+ggplot(df, aes(color = `Chr 5 303.3  IcM`, x = `Chr 6 357.1 IcM`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`Chr 5 303.3  IcM`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(vars(Population), ncol = 3) 
+dev.off()
+```
+
+### Figure for interaction between 3@663.1 and 9@514.9 GLS
+```{r}
+# make a figure 
+qtl_plot <- effectplot(ril_rqtl_cross, 3, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+df <- data.frame("Chr 3 663.1  IcM"=c("B73/B73","Mo17/Mo17","B73/B73","Mo17/Mo17"), "Chr 9 514.9 IcM"=c("B73/B73", "B73/B73","Mo17/Mo17","Mo17/Mo17"), Mean=as.numeric(qtl_plot$Means)--0.7067, SE=as.numeric(qtl_plot$SEs), Population = "RIL", check.names = FALSE)
+
+
+
+qtl_plot <- effectplot(b73_rqtl_cross, 4, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+df <- rbind(data.frame("Chr 3 663.1  IcM"=c("B73/B73","B73/Mo17","B73/B73","B73/Mo17"), "Chr 9 514.9 IcM"=c("B73/B73", "B73/B73","B73/Mo17","B73/Mo17"), Mean=as.numeric(qtl_plot$Means)-5.215,  SE=as.numeric(qtl_plot$SEs),Population = "B73 BC", check.names = FALSE), df)
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 3, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("Chr 3 663.1  IcM"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "Chr 9 514.9 IcM"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=as.numeric(qtl_plot$Means)-0.7360 , SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+
+df$Population <- factor(df$Population, levels = c("RIL", "B73 BC", "Mo17 BC"))
+
+
+pdf("figures/epi_qtl_3_gls.pdf", width = 10)
+ggplot(df, aes(color = `Chr 3 663.1  IcM`, x = `Chr 9 514.9 IcM`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`Chr 3 663.1  IcM`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(vars(Population), ncol = 3) 
+dev.off()
+```
+
+### Figure for interaction between 3@663.1 and 9@514.9 SLB
+```{r}
+# make a figure 
+qtl_plot <- effectplot(ril_rqtl_cross, 1, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/B73","Mo17/Mo17"), geno2 = c("B73/B73","Mo17/Mo17"))
+df <- data.frame("Chr 3 663.1  IcM"=c("B73/B73","Mo17/Mo17","B73/B73","Mo17/Mo17"), "Chr 9 514.9 IcM"=c("B73/B73", "B73/B73","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE), SE=as.numeric(qtl_plot$SEs), Population = "RIL", check.names = FALSE)
+
+
+
+qtl_plot <- effectplot(b73_rqtl_cross, 1, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/B73", "B73/Mo17"), geno2 = c("B73/B73", "B73/Mo17"))
+df <- rbind(data.frame("Chr 3 663.1  IcM"=c("B73/B73","B73/Mo17","B73/B73","B73/Mo17"), "Chr 9 514.9 IcM"=c("B73/B73", "B73/B73","B73/Mo17","B73/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE),  SE=as.numeric(qtl_plot$SEs),Population = "B73 BC", check.names = FALSE), df)
+
+qtl_plot <- effectplot(mo17_rqtl_cross, 1, mname1 = "3@663.1", mname2 = "9@514.9", geno1 = c("B73/Mo17", "Mo17/Mo17"), geno2 = c("B73/Mo17", "Mo17/Mo17"))
+df <- rbind(data.frame("Chr 3 663.1  IcM"=c("B73/Mo17","Mo17/Mo17","B73/Mo17","Mo17/Mo17"), "Chr 9 514.9 IcM"=c("B73/Mo17", "B73/Mo17","Mo17/Mo17","Mo17/Mo17"), Mean=scale(as.numeric(qtl_plot$Means),scale=FALSE) , SE=as.numeric(qtl_plot$SEs), Population = "Mo17 BC", check.names = FALSE), df)
+
+
+df$Population <- factor(df$Population, levels = c("RIL", "B73 BC", "Mo17 BC"))
+
+
+pdf("figures/epi_qtl_3_slb.pdf", width = 10)
+ggplot(df, aes(color = `Chr 3 663.1  IcM`, x = `Chr 9 514.9 IcM`, y = Mean)) +
+  geom_point() +
+  geom_line(aes(group=`Chr 3 663.1  IcM`)) + 
+  geom_errorbar(aes(ymin = Mean - SE, ymax = Mean + SE), width = 0.2) +
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
+  facet_wrap(vars(Population), ncol = 3) 
+dev.off()
+```
+

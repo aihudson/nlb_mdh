@@ -105,6 +105,18 @@ Each stage writes files consumed by the next.
     not just the one where it was significant), default grey theme, size-20 text, x-labels rotated
     45°, second locus genotype on x, first locus genotype as color, y = mean deviation from the
     population mean.
+13. **`13_circos_plots.R`** — No population argument; builds three whole-genome `circlize` circos
+    PDFs from `06`'s peaks, `09`'s thresholds/scans, and `11`'s effect grid, for the five analysis
+    slots in published order (RIL, B73 BC, B73 MPH, Mo17 BC, Mo17 MPH). Because the MQM LOD scans
+    (`analyses/qtl_analyses/{RIL,B73_BC,Mo17_BC}.RDS`, on their own pseudomarker grids) and the
+    effect table (`analyses/qtl_effects_whole_genome.csv`, on a step-2.5 cM grid) don't share rows,
+    `build_lod_qtl()` first `approx()`-interpolates each slot's LOD onto the effect grid's `(chr,
+    pos)` so LOD and effect line up 1:1; significance uses `get_thr()` (copied from `06`) against
+    each RDS's `$permutations`. Writes `figures/nlb_circos_lod.pdf` (five LOD tracks, red where
+    significant, dashed peak markers from `analyses/main_effect_peaks.csv`),
+    `figures/nlb_circos_effect.pdf` (same five tracks as signed effect size, masked to black/red by
+    the same significance grid, dashed zero baseline), and `figures/nlb_circos_paper.pdf` (both
+    stacked in one page with A/B labels and a legend).
 
 ## How these scripts are run
 
