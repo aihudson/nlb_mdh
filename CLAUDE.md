@@ -130,6 +130,21 @@ Each stage writes files consumed by the next.
     from, matching `13`'s cross-track peak markers), a dotted zero baseline on
     Effect panels, and a solid per-population LOD threshold line. Writes
     `figures/chr<N>_nlb.pdf`, one per QTL-carrying chromosome.
+15. **`15_compare_old_study_qtl.R`** — No population argument; compares this project's
+    peaks (`analyses/main_effect_peaks.csv`) against the QTL from the earlier published
+    IBM B73×Mo17 NLB study (its Table 3, hand-transcribed into the script). Both studies
+    sit on the IBM2 map and share named markers, but the raw Imu numbers are offset
+    between the two map builds, so each old QTL is **anchored onto this project's map via
+    its two flanking markers** (looked up in `data/ibm302map.csv`) rather than by raw
+    position, then interval-overlapped against each peak's LOD-1.5 support interval. WMD
+    is the primary (same-trait) comparison; old incubation-period (IP) QTL are carried
+    through and flagged as a secondary cross-trait observation (`overlap_call` ∈
+    `recovered_WMD`/`near_miss_WMD`/`cross_trait_IP`/`near_miss_IP`/…); DTA is encoded for
+    reference but excluded. Writes `analyses/qtl_overlap_old_study.csv` (one row per
+    peak×same-chr old QTL, plus not-recovered old QTL and novel peaks) and prints a
+    per-peak + not-recovered summary. Result: only the chr1 ~480 peak recovers an old WMD
+    QTL (AU06WMD `bnlg1598–umc1396`); the old chr4/chr2/chr3 WMD QTL are not recovered;
+    chr5/chr6/chr9 peaks are novel for WMD (chr6/chr9 sit near old IP QTL).
 
 ## How these scripts are run
 
