@@ -141,5 +141,10 @@ for (ch in sort(unique(peaks$chr))){
     shared_theme
 
   combined <- plot_grid(p_eff, p_lod, ncol = 2)
+  # the Effect (left) panel blanks its y-title in shared_theme; add it here on
+  # the assembled grid so the effect direction is stated
+  combined <- ggdraw(combined) +
+    draw_label("B73-allele effect on resistance (+ = more resistant)",
+               x = 0, y = 0.5, vjust = 1.5, angle = 90, size = 12)
   ggsave(sprintf("figures/chr%s_nlb.pdf", ch), combined, width = 8, height = 10)
 }

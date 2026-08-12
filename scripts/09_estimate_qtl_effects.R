@@ -30,7 +30,8 @@ epistatic_peaks_file <- "analyses/epistatic_peaks.csv"
 output_file <- "analyses/qtl_effects.csv"
 
 # Sign of the raw fitqtl Q-term estimate, mapped onto the B73-allele /
-# disease-BLUP convention (see plans/identify_qtl_and_effects.md, "Effect
+# resistance-BLUP convention (NLB_WMD_BLUP = 100 - wmd, so positive = B73
+# allele raises resistance; see plans/identify_qtl_and_effects.md, "Effect
 # sign & allele convention"):
 #  - RIL: the additive-only genotype code runs B73=-1, Mo17=+1, so
 #    a = -raw_est = (B73/B73 - Mo17/Mo17) / 2.

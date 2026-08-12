@@ -1,6 +1,8 @@
 # Plan: Identify significant QTL and estimate their effects (scripts 08–11)
 
 > **Self-contained plan.** Everything a fresh session needs is in this file: the design (scripts 08–11), the decided effect convention, the concrete reference values discovered from the data, and copy-paste R verification snippets. Run all commands from the project root `~/projects/nlb_mdh`. A copy of this plan also lives at `~/.claude/plans/i-want-to-identify-spicy-crescent.md`; consider copying it into the repo (e.g. `plans/`) if you want it version-controlled.
+>
+> **Direction convention:** all effects here are on the **resistance scale** (`NLB_WMD_BLUP = 100 - wmd`, positive = B73 allele raises resistance = lowers disease). See `plans/disease_direction_convention.md` for the project-wide audit and source of truth.
 
 ## Context
 
@@ -25,7 +27,7 @@ The goal is to finish the pipeline: (1) identify significant epistatic QTL, and 
 > problems the user raised after reading `analyses/qtl_effects.csv` / `analyses/qtl_gene_action.csv`.
 > All work is confined to **`scripts/09_estimate_qtl_effects.R`** and
 > **`scripts/10_qtl_gene_action.R`**; reuse the mechanics already in those files and in the legacy
-> `scripts/get_effects/qtl_effect_all.Rmd::run_fitqtl()`. The B73-allele/disease-BLUP sign
+> `scripts/get_effects/qtl_effect_all.Rmd::run_fitqtl()`. The B73-allele/resistance-BLUP sign
 > convention, `sign_mult()`, `estimate_type_for()`, and `read_cross()` all stay as-is.
 
 ## The four problems (with what investigation found)
@@ -42,11 +44,13 @@ The goal is to finish the pipeline: (1) identify significant epistatic QTL, and 
    peak) carry `lod = NA` to mark "not an independently significant peak"; the real fit LOD is in
    `fitqtl_lod`. But `NA` overloads two meanings and is not self-explanatory.
 3. **chr6 shows "opposite" B73 effects in RIL (−1.41) vs B73_BC (+1.63) — verified NOT a bug.**
-   `effectplot` confirms RIL 6@245 means **B73/B73 = 86.27 < Mo17/Mo17 = 89.71**, so the B73 allele
-   *lowers* disease (`a` ≈ −1.7 raw, −1.4 to −1.6 epistasis-adjusted — stable). The B73_BC +1.63 is
-   the **confounded `d − a` contrast**, not `a`; with `a` negative, `d − a = d + 1.41` is positive
-   (⇒ `d` ≈ +0.2–0.5, small). Both populations agree B73 is protective at chr6. The confusion is
-   purely comparing an `a` against a `d − a`. **(Appendix C below is corrected accordingly.)**
+   `effectplot` confirms RIL 6@245 means **B73/B73 = 86.27 < Mo17/Mo17 = 89.71** on the resistance
+   scale, so the B73/B73 class is the *less-resistant* one: the B73 allele **lowers resistance =
+   raises disease** here (`a` ≈ −1.7 raw, −1.4 to −1.6 epistasis-adjusted — stable). The B73_BC +1.63
+   is the **confounded `d − a` contrast**, not `a`; with `a` negative, `d − a = d + 1.41` is positive
+   (⇒ `d` ≈ +0.2–0.5, small). Both populations agree the B73 allele is **not** protective at chr6
+   (it raises disease there). The confusion is purely comparing an `a` against a `d − a`.
+   **(Appendix C below is corrected accordingly.)**
 4. **Gene action only for QTL significant in two populations.** `d` currently comes *only* from a
    BC's independently-significant MPH peak, so chr5, chr6, chr9 get no action call. **Decision:**
    estimate the MPH `d` at *every* QTL position regardless of MPH significance (a small
@@ -148,11 +152,11 @@ Add four CLI-style numbered scripts that follow the **`07_epistatic_qtl.R` skele
 **Effect-estimation mechanics to reuse** (all from `qtl`): `sim.geno(cross, step=2.5)` → `makeqtl(cross, chr, pos)` → `fitqtl(cross, pheno.col, qtl, get.ests=TRUE, formula=...)` → effect estimate = `summary(out.qtl)$ests[-1,1]`; per-QTL drop-one LOD = `summary(out.qtl)$result.drop[,"LOD"]`. The cleanest reference is `run_fitqtl()` in [rqtl_mqm_effect.Rmd](scripts/get_effects/rqtl_mqm_effect.Rmd#L47); the epistasis-aware, formula-building version is `run_fitqtl()`/`mqm_effect_scan()` in [qtl_effect_all.Rmd](scripts/get_effects/qtl_effect_all.Rmd#L60) and [get_qtl_effects_frreal.R](scripts/get_effects/get_qtl_effects_frreal.R#L1); the partial NLB port to build on is [get_effects_mqm.R](scripts/get_effects_mqm.R). Note the legacy `negative=TRUE` sign flip is **not** used here (see convention below).
 
 ### Effect sign & allele convention (decided)
-All effects are the **substitution effect of the B73 allele on `NLB_WMD_BLUP`, disease scale as-is** (positive = B73 allele raises the BLUP; no sign flip). Parameterization: B73/B73 = m+a, B73/Mo17 = m+d, Mo17/Mo17 = m−a.
+All effects are the **substitution effect of the B73 allele on `NLB_WMD_BLUP`, the resistance scale as-is** (`NLB_WMD_BLUP = 100 - wmd`; positive = B73 allele raises resistance; no sign flip). Parameterization: B73/B73 = m+a, B73/Mo17 = m+d, Mo17/Mo17 = m−a.
 - **Additive `a` — RIL only.** RIL gives both homozygous classes, so `a = (μ[B73/B73] − μ[Mo17/Mo17]) / 2` (verified at 9@100: (89.79−85.94)/2 = +1.93). For a QTL significant **only in a BC**, obtain its `a` by fitting at that map position **in the RIL cross** (the legacy `qtl_remain_effect`/`get_qtl_effects` approach).
 - **Dominance `d` — BC MPH only.** The MPH phenotype directly estimates `d` (heterozygote deviation from mid-parent).
 - **BC BLUP is confounded, not additive.** The two-class BC BLUP contrast equals `d − a` (B73 BC) or `−a − d` (Mo17 BC) (verified: B73 BC 6@245 = +2.07; Mo17 BC 5@535 = −2.11). Report it only if useful, explicitly labeled as the confounded contrast — never as `a`.
-- **Internal-code trap (must handle).** R/qtl relabels both BCs internally as `AA`/`AB`; for **Mo17 BC** internal `AA` = the real **B73/Mo17 het** and internal `AB` = **Mo17/Mo17**. So `09`/`11` must map internal genotype codes → real B73/Mo17 genotypes **per population** before assigning sign, and **verify every reported effect's sign against `effectplot` genotype-class means** (as done during planning). `fitqtl`'s `get.ests` sign is only trusted after this per-population mapping/verification; effects are negated as needed so all are on the B73-allele/disease-BLUP convention.
+- **Internal-code trap (must handle).** R/qtl relabels both BCs internally as `AA`/`AB`; for **Mo17 BC** internal `AA` = the real **B73/Mo17 het** and internal `AB` = **Mo17/Mo17**. So `09`/`11` must map internal genotype codes → real B73/Mo17 genotypes **per population** before assigning sign, and **verify every reported effect's sign against `effectplot` genotype-class means** (as done during planning). `fitqtl`'s `get.ests` sign is only trusted after this per-population mapping/verification; effects are negated as needed so all are on the B73-allele/resistance-BLUP convention.
 
 ### `08_identify_epistatic_qtl.R` — call significant epistatic QTL (CLI: `<population> [alpha]`)
 - Read `analyses/qtl_analyses/<pop>_scantwo.RDS` (`list(scan, permutations)`; `permutations` keyed by pheno name — see [07_epistatic_qtl.R](scripts/07_epistatic_qtl.R#L98)).
@@ -168,7 +172,7 @@ All effects are the **substitution effect of the B73 allele on `NLB_WMD_BLUP`, d
 - Read `analyses/main_effect_peaks.csv` (strip the `"LOD "` prefix from `trait` to get the pheno column name) and, for genuine significant interactions, `analyses/epistatic_peaks.csv`.
 - Reuse `read_cross()`/RIL-conversion from [06_identify_qtl.R](scripts/06_identify_qtl.R#L17); `sim.geno(cross, step=2.5)`.
 - For each phenotype present for that population: `makeqtl` from that pheno's peaks, build the `fitqtl` formula adding `Qi:Qj` terms for any significant epistatic pairs (formula-builder from [qtl_effect_all.Rmd](scripts/get_effects/qtl_effect_all.Rmd#L69)), `fitqtl(get.ests=TRUE)`, extract estimate + drop-one LOD.
-- Apply the **B73-allele / disease-BLUP convention** above: map internal codes → real genotypes per population, negate the estimate where needed so `+` = B73 allele raises BLUP, and cross-check the sign against `effectplot` marginal means. Label each estimate by what it is: **RIL BLUP → `a`**; **BC MPH → `d`**; **BC BLUP → confounded contrast (`d−a` / `−a−d`)**, not additive.
+- Apply the **B73-allele / resistance-BLUP convention** above: map internal codes → real genotypes per population, negate the estimate where needed so `+` = B73 allele raises BLUP, and cross-check the sign against `effectplot` marginal means. Label each estimate by what it is: **RIL BLUP → `a`**; **BC MPH → `d`**; **BC BLUP → confounded contrast (`d−a` / `−a−d`)**, not additive.
 - Also fit the **RIL** cross at any BC-only peak positions to supply their `a` (needed by `10`).
 - Output: `analyses/qtl_effects.csv` — peaks with `cross, trait, chr, pos, ci_lo, ci_hi, lod, estimate, estimate_type` (`a`/`d`/`confounded`), `fitqtl_lod`.
 
@@ -177,7 +181,7 @@ All effects are the **substitution effect of the B73 allele on `NLB_WMD_BLUP`, d
 > "main"`; `d` from direct MPH fits at every QTL, real or borrowed; `*_d_sig` flags; every QTL gets
 > an action call). The below is the original as-built spec.
 - **Colocalization (what you did before, now automated):** the legacy [overlapping_qtl.Rmd](scripts/get_effects/overlapping_qtl.Rmd) computed CI overlaps per chromosome with `IRanges::findOverlaps` on `[ci_lo, ci_hi]`, **but then assigned the shared QTL id integers by hand** (hardcoded per-chromosome vectors) and hand-annotated prior-literature matches. This script replaces the manual id assignment with automatic connected-component grouping of overlapping CIs (still `IRanges::findOverlaps`), yielding a `qtl_id` per colocalized cluster. With only ~6 peaks and 1 trait this is small and fully automatable.
-- Join additive `a` (RIL, `estimate_type=="a"`) with dominance `d` (each BC's MPH, `estimate_type=="d"`) by `qtl_id` — all already on the B73-allele/disease-BLUP convention from `09`. Compute `B73 d/a`, `Mo17 d/a`; classify gene action with the legacy `case_when` cutoffs 0.2 / 0.8 / 1.2 (additive / partial-dominant / dominant / over- / under-dominant), direction-aware, from [qtl_effect_all.Rmd](scripts/get_effects/qtl_effect_all.Rmd#L319).
+- Join additive `a` (RIL, `estimate_type=="a"`) with dominance `d` (each BC's MPH, `estimate_type=="d"`) by `qtl_id` — all already on the B73-allele/resistance-BLUP convention from `09`. Compute `B73 d/a`, `Mo17 d/a`; classify gene action with the legacy `case_when` cutoffs 0.2 / 0.8 / 1.2 (additive / partial-dominant / dominant / over- / under-dominant), direction-aware, from [qtl_effect_all.Rmd](scripts/get_effects/qtl_effect_all.Rmd#L319).
 - Output: `analyses/qtl_gene_action.csv` — combined table `qtl_id, chr, pos, a, B73_d, B73_d/a, B73_action, Mo17_d, Mo17_d/a, Mo17_action, sig_in`.
 
 ### `11_genome_wide_effect_scan.R` — sliding effect profile (CLI: `<population>`)
@@ -193,7 +197,7 @@ All effects are the **substitution effect of the B73 allele on `NLB_WMD_BLUP`, d
 ## Verification
 Run from the project root (all inputs already exist on disk):
 1. `Rscript scripts/08_identify_epistatic_qtl.R RIL` (then `B73_BC`, `Mo17_BC`) → inspect `analyses/epistatic_peaks.csv`: RIL should flag c1×c3 (`int_p`≈0) and c3×c5 as genuine `sig_level=0.05`; same-chr close pairs flagged `same_chr_close=TRUE`.
-2. `Rscript scripts/09_estimate_qtl_effects.R RIL` (+ BC pops) → `analyses/qtl_effects.csv`: peak rows with finite `estimate`, correct `estimate_type` (`a`/`d`/`confounded`), and `fitqtl_lod`. Confirm the B73-allele/disease-BLUP convention by spot-checking against `effectplot` marginal means — e.g. RIL 9@100 should give `a ≈ +1.93`; Mo17 BC mapping must treat internal `AA` as the B73/Mo17 het.
+2. `Rscript scripts/09_estimate_qtl_effects.R RIL` (+ BC pops) → `analyses/qtl_effects.csv`: peak rows with finite `estimate`, correct `estimate_type` (`a`/`d`/`confounded`), and `fitqtl_lod`. Confirm the B73-allele/resistance-BLUP convention by spot-checking against `effectplot` marginal means — e.g. RIL 9@100 should give `a ≈ +1.93`; Mo17 BC mapping must treat internal `AA` as the B73/Mo17 het.
 3. `Rscript scripts/10_qtl_gene_action.R` → `analyses/qtl_gene_action.csv`: colocalized `qtl_id`s with `a`, `d`, `d/a`, and an `action` label in {additive, pd, dominant, od, ud}.
 4. `Rscript scripts/11_genome_wide_effect_scan.R RIL` (+ BC pops) → `analyses/qtl_effects_whole_genome.csv`: one effect value per map position; `plot(pos, effect, type="l")` should peak near the significant QTL and cross ~0 elsewhere.
 
@@ -241,12 +245,13 @@ Interaction-LOD permutation thresholds and observed genome-wide max interaction 
 Rule for `08`: flag `same_chr_close = chr1==chr2 & abs(pos1-pos2) < ~20 cM`; only inter-chromosomal (or well-separated) pairs below the p threshold are "genuine". Genuine significant epistasis = **RIL c1×c3, c3×c5** and **B73_BC BLUP c3×c8, c4×c9**.
 
 ## C. Effect-convention reference values (expected sanity checks for `09`)
-Convention: **effect of the B73 allele on `NLB_WMD_BLUP`, disease scale, no flip** (positive = B73 raises BLUP). Genotype-class means from `effectplot` (after `sim.geno(step=2)`):
+Convention: **effect of the B73 allele on `NLB_WMD_BLUP`, resistance scale, no flip** (positive = B73 raises resistance). Genotype-class means from `effectplot` (after `sim.geno(step=2)`):
 - RIL 9@100: B73/B73=89.79, Mo17/Mo17=85.94 → **a = +1.93** (clean additive).
-- RIL 6@245: B73/B73=86.27 **<** Mo17/Mo17=89.71 → **a ≈ −1.7** (B73 allele lowers disease; a is
-  **negative**). *(Corrected 2026-07-26 — an earlier draft here wrongly said "small positive a";
-  the data show B73/B73 is the lower/more-resistant class. This is why the B73_BC `d − a` contrast
-  at 6@245 comes out positive — see the revision section above, problem #3.)*
+- RIL 6@245: B73/B73=86.27 **<** Mo17/Mo17=89.71 → **a ≈ −1.7** (B73 allele lowers resistance =
+  raises disease; a is **negative**). *(Corrected 2026-08-12 — these are resistance-scale means, so
+  B73/B73 is the lower/less-resistant class and the B73 allele is not protective at chr6. This is
+  why the B73_BC `d − a` contrast at 6@245 comes out positive — see the revision section above,
+  problem #3.)*
 - B73_BC 6@245 (BLUP): B73/B73=87.77, B73/Mo17=89.84 → contrast +2.07 = **d − a** (confounded).
 - B73_BC 1@480 (MPH): "hom"=3.94, het=5.27 → positive **d**.
 - Mo17_BC 5@535 (BLUP): B73/Mo17=94.46, Mo17/Mo17=92.35 → contrast −2.11 = **−a − d** (confounded; remember internal `AA`=het).

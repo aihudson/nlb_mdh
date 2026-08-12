@@ -43,7 +43,7 @@ blups_long <- gather(blups, condition, blup, NLB_WMD_BLUP, factor_key=TRUE)
 
 make_figure <- function(df, original_lines, trait){
   trait_name <- case_when(
-    trait == "NLB_WMD_BLUP" ~ "NLB"
+    trait == "NLB_WMD_BLUP" ~ "NLB resistance BLUP (100 - WMD)"
   )
   bw <- 2 * IQR(blups[[trait]], na.rm=TRUE) / length(which(!is.na(blups[[trait]])))^(1/3)
   b73_line <- original_lines %>%
@@ -99,7 +99,7 @@ make_figure <- function(df, original_lines, trait){
   #)
   trait_name <- case_when(
     trait == "SLB_WMD_BLUE_MPH_PCT" ~ "SLB",
-    trait == "NLB_WMD_BLUP_MPH_PCT" ~ "NLB",
+    trait == "NLB_WMD_BLUP_MPH_PCT" ~ "NLB resistance MPH (%)",
     trait == "GLS_WMD_BLUE_MPH_PCT" ~ "GLS",
     trait == "DTA_BLUE_MPH_PCT" ~ "DTA",
     trait == "PH_BLUE_MPH_PCT" ~ "PH",
@@ -139,7 +139,7 @@ make_figure_bph <- function(df, original_lines, trait){
   #)
   trait_name <- case_when(
     trait == "SLB_WMD_BLUE_BPH_PCT" ~ "SLB",
-    trait == "NLB_WMD_BLUP_BPH_PCT" ~ "NLB",
+    trait == "NLB_WMD_BLUP_BPH_PCT" ~ "NLB resistance BPH (%)",
     trait == "GLS_WMD_BLUE_BPH_PCT" ~ "GLS",
     trait == "DTA_BLUE_BPH_PCT" ~ "DTA",
     trait == "PH_BLUE_BPH_PCT" ~ "PH",
@@ -174,7 +174,7 @@ grab_legend <- function(df, original_lines, trait){
   #)
   trait_name <- case_when(
     trait == "SLB_WMD_BLUE_BPH_PCT" ~ "SLB",
-    trait == "NLB_WMD_BLUP_BPH_PCT" ~ "NLB",
+    trait == "NLB_WMD_BLUP_BPH_PCT" ~ "NLB resistance BPH (%)",
     trait == "GLS_WMD_BLUE_BPH_PCT" ~ "GLS",
     trait == "DTA_BLUE_BPH_PCT" ~ "DTA",
     trait == "PH_BLUE_BPH_PCT" ~ "PH",

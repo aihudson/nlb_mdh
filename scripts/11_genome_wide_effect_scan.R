@@ -23,7 +23,9 @@ presets <- list(
                  na.strings = "-B", crosstype = "bc", phenos = c(1, 5))
 )
 
-# same raw-fitqtl-estimate -> reported-estimate sign convention as 09
+# same raw-fitqtl-estimate -> reported-estimate sign convention as 09: the
+# B73-allele effect on the resistance-scale BLUP (NLB_WMD_BLUP = 100 - wmd,
+# positive = B73 raises resistance)
 # (see plans/identify_qtl_and_effects.md, "Effect sign & allele convention")
 sign_mult <- function(population, trait) {
   if (population == "RIL") return(-1)

@@ -135,7 +135,8 @@ for (i in seq_len(nrow(unique_pairs))) {
     geom_point() +
     geom_line() +
     geom_errorbar(aes(ymin = mean_dev - se, ymax = mean_dev + se), width = 0.2) +
-    labs(x = locus2_lab, y = "Mean", color = locus1_lab) +
+    labs(x = locus2_lab, y = "Deviation from mean resistance (100 - WMD)",
+         color = locus1_lab) +
     theme(text = element_text(size = 20),
           axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)) +
     facet_wrap(vars(Population), ncol = 3)

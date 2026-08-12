@@ -167,6 +167,8 @@ dev.off()
 
 pdf("figures/nlb_circos_effect.pdf", width = 7, height = 7)
 make_effect_circos(lod_qtl, effect_grid, combined_qtl)
+mtext("B73-allele effect on resistance (+ = more resistant)",
+      side = 1, line = 0, cex = 0.9)
 circos.clear()
 dev.off()
 
@@ -181,6 +183,8 @@ circos.clear()
 par(mar = c(1, 1, 2, 1))
 make_effect_circos(lod_qtl, effect_grid, combined_qtl)
 mtext("B", side = 3, line = 0, adj = 0, cex = 1.3, font = 2)
+mtext("B73-allele effect on resistance (+ = more resistant)",
+      side = 1, line = 0, cex = 0.8)
 circos.clear()
 
 par(mar = c(0, 0, 0, 0))
