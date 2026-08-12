@@ -57,24 +57,33 @@ clusters <- main_effects %>%
 
 # a/d values now come from real peaks *or* borrowed dummy-QTL fits (09's
 # symmetric borrowing), so every qtl_id gets a value; when both a real and a
-# borrowed fit exist for the same qtl_id, prefer the real one.
+# borrowed fit exist for the same qtl_id, prefer the real one. Each also
+# carries its own per-QTL %var: fitqtl_pct_var (joint/adjusted, drop-one from
+# the population's full model) and single_qtl_pct_var (marginal, that QTL
+# alone vs. the null model) -- see scripts/09_estimate_qtl_effects.R.
 a_vals <- main_effects %>%
   filter(estimate_type == "a") %>%
   group_by(qtl_id) %>%
   arrange(borrowed, .by_group = TRUE) %>%
-  summarise(a = estimate[1], a_sig = !borrowed[1], .groups = "drop")
+  summarise(a = estimate[1], a_sig = !borrowed[1],
+            a_pct_var_joint = fitqtl_pct_var[1],
+            a_pct_var_single = single_qtl_pct_var[1], .groups = "drop")
 
 b73_d <- main_effects %>%
   filter(estimate_type == "d", cross == "B73_BC") %>%
   group_by(qtl_id) %>%
   arrange(borrowed, .by_group = TRUE) %>%
-  summarise(B73_d = estimate[1], B73_d_sig = !borrowed[1], .groups = "drop")
+  summarise(B73_d = estimate[1], B73_d_sig = !borrowed[1],
+            B73_d_pct_var_joint = fitqtl_pct_var[1],
+            B73_d_pct_var_single = single_qtl_pct_var[1], .groups = "drop")
 
 mo17_d <- main_effects %>%
   filter(estimate_type == "d", cross == "Mo17_BC") %>%
   group_by(qtl_id) %>%
   arrange(borrowed, .by_group = TRUE) %>%
-  summarise(Mo17_d = estimate[1], Mo17_d_sig = !borrowed[1], .groups = "drop")
+  summarise(Mo17_d = estimate[1], Mo17_d_sig = !borrowed[1],
+            Mo17_d_pct_var_joint = fitqtl_pct_var[1],
+            Mo17_d_pct_var_single = single_qtl_pct_var[1], .groups = "drop")
 
 # which cross/trait combos were independently significant (excludes
 # borrowed/supplemental fits) at each qtl_id
@@ -106,8 +115,11 @@ combined <- clusters %>%
     B73_action = classify_action(`B73_d/a`),
     Mo17_action = classify_action(`Mo17_d/a`)
   ) %>%
-  select(qtl_id, chr, pos, a, a_sig, B73_d, `B73_d/a`, B73_action, B73_d_sig,
-         Mo17_d, `Mo17_d/a`, Mo17_action, Mo17_d_sig, sig_in) %>%
+  select(qtl_id, chr, pos, a, a_sig, a_pct_var_joint, a_pct_var_single,
+         B73_d, `B73_d/a`, B73_action, B73_d_sig,
+         B73_d_pct_var_joint, B73_d_pct_var_single,
+         Mo17_d, `Mo17_d/a`, Mo17_action, Mo17_d_sig,
+         Mo17_d_pct_var_joint, Mo17_d_pct_var_single, sig_in) %>%
   arrange(qtl_id)
 
 write.csv(combined, output_file, row.names = FALSE)

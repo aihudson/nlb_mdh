@@ -5,6 +5,12 @@ require(dplyr)
 # Rscript scripts/09_estimate_qtl_effects.R B73_BC
 # Rscript scripts/09_estimate_qtl_effects.R Mo17_BC
 
+# sim.geno imputes missing/pseudomarker genotypes by Monte Carlo, so every
+# estimate/LOD/%var here wiggles run-to-run; pin a seed and use plenty of
+# draws for stable, reproducible output (mirrors 17_variance_explained.R).
+set.seed(1)
+n_draws <- 256
+
 args <- commandArgs(trailingOnly = TRUE)
 population <- args[1]
 
@@ -63,6 +69,24 @@ read_cross <- function(input_file, genotype, na.strings, crosstype) {
   cross
 }
 
+# %var from a lone QTL (or, for an epistatic pair, that pair alone) fit
+# against the null (no-QTL) model -- the marginal contrast to the joint
+# model's drop-one fitqtl_pct_var: "how much this locus explains by itself,"
+# not "its unique contribution controlling for the population's other QTL."
+single_locus_pct_var <- function(cross, trait, chr, pos) {
+  qnam <- paste0("Q", seq_along(chr))
+  epinam <- if (length(chr) == 2) paste0("+", qnam[1], ":", qnam[2]) else ""
+  qtlobj <- makeqtl(cross, chr = chr, pos = pos)
+  formula <- as.formula(paste0("y ~ ", paste(qnam, collapse = "+"), epinam))
+  pheno.col <- match(trait, colnames(cross$pheno))
+  out <- tryCatch(
+    fitqtl(cross, pheno.col = pheno.col, qtl = qtlobj, get.ests = FALSE, formula = formula),
+    error = function(e) NULL
+  )
+  if (is.null(out)) return(NA_real_)
+  summary(out)$result.full["Model", "%var"]
+}
+
 # fit one phenotype's main peaks together, adding Qi:Qj terms for any
 # genuine epistatic partners so the main-peak estimates/LODs are adjusted
 # for background epistasis; returns list(main=<one row per main peak>,
@@ -100,19 +124,40 @@ fit_main_effects <- function(cross, trait, main_peaks, epi_peaks) {
 
   # result.drop is NULL when there's exactly one QTL term (main_n==1, no
   # epistasis partners) -- dropping the only term is the same comparison as
-  # the full-vs-null model, so fall back to the full-model LOD in that case.
+  # the full-vs-null model, so fall back to the full-model LOD/%var in that
+  # case.
   if (is.null(s$result.drop)) {
     main_lod <- rep(s$result.full["Model", "LOD"], main_n)
+    main_pct_var <- rep(s$result.full["Model", "%var"], main_n)
     epi_lod <- numeric(0)
+    epi_pct_var <- numeric(0)
   } else {
     drop_is_epi <- grepl(":", rownames(s$result.drop))
     main_lod <- as.numeric(s$result.drop[!drop_is_epi, "LOD"])[seq_len(main_n)]
+    main_pct_var <- as.numeric(s$result.drop[!drop_is_epi, "%var"])[seq_len(main_n)]
     epi_lod <- as.numeric(s$result.drop[drop_is_epi, "LOD"])
+    epi_pct_var <- as.numeric(s$result.drop[drop_is_epi, "%var"])
+  }
+
+  # marginal (single-locus) %var: each QTL/pair fit alone against the null
+  # model, ignoring the population's other mapped QTL -- contrast to the
+  # joint/adjusted fitqtl_pct_var above.
+  main_single_pct_var <- vapply(seq_len(main_n), function(i) {
+    single_locus_pct_var(cross, trait, main_peaks$chr[i], main_peaks$pos[i])
+  }, numeric(1))
+  epi_single_pct_var <- numeric(0)
+  if (epi_n > 0) {
+    epi_single_pct_var <- vapply(seq_len(epi_n), function(j) {
+      single_locus_pct_var(cross, trait, c(epi_peaks$chr1[j], epi_peaks$chr2[j]),
+                            c(epi_peaks$pos1[j], epi_peaks$pos2[j]))
+    }, numeric(1))
   }
 
   main <- data.frame(
     raw_estimate = ests[!is_epi][seq_len(main_n)],
-    fitqtl_lod = main_lod
+    fitqtl_lod = main_lod,
+    fitqtl_pct_var = main_pct_var,
+    single_qtl_pct_var = main_single_pct_var
   )
 
   epi <- data.frame()
@@ -122,7 +167,9 @@ fit_main_effects <- function(cross, trait, main_peaks, epi_peaks) {
       chr2 = epi_peaks$chr2, pos2 = epi_peaks$pos2,
       lod = epi_peaks$lod.int,
       raw_estimate = ests[is_epi],
-      fitqtl_lod = epi_lod
+      fitqtl_lod = epi_lod,
+      fitqtl_pct_var = epi_pct_var,
+      single_qtl_pct_var = epi_single_pct_var
     )
   }
 
@@ -168,23 +215,34 @@ dummy_qtl_effect <- function(cross, trait, chr, pos, main_peaks, epi_peaks) {
     fitqtl(cross, pheno.col = pheno.col, qtl = qtlobj, get.ests = TRUE, formula = formula),
     error = function(e) NULL
   )
-  if (is.null(out.qtl)) return(list(raw_estimate = NA_real_, fitqtl_lod = NA_real_))
+  if (is.null(out.qtl)) {
+    return(list(raw_estimate = NA_real_, fitqtl_lod = NA_real_,
+                fitqtl_pct_var = NA_real_, single_qtl_pct_var = NA_real_))
+  }
 
   s <- summary(out.qtl)
   raw_estimate <- as.numeric(s$ests[-1, 1])[dummy_idx]
 
   if (is.null(s$result.drop)) {
     fitqtl_lod <- s$result.full["Model", "LOD"]
+    fitqtl_pct_var <- s$result.full["Model", "%var"]
   } else {
     drop_is_epi <- grepl(":", rownames(s$result.drop))
     fitqtl_lod <- as.numeric(s$result.drop[!drop_is_epi, "LOD"])[dummy_idx]
+    fitqtl_pct_var <- as.numeric(s$result.drop[!drop_is_epi, "%var"])[dummy_idx]
   }
 
-  list(raw_estimate = raw_estimate, fitqtl_lod = fitqtl_lod)
+  # the dummy QTL alone, not the kept real peaks -- marginal contrast to
+  # fitqtl_pct_var above.
+  single_qtl_pct_var <- single_locus_pct_var(cross, trait, chr, pos)
+
+  list(raw_estimate = raw_estimate, fitqtl_lod = fitqtl_lod,
+       fitqtl_pct_var = fitqtl_pct_var, single_qtl_pct_var = single_qtl_pct_var)
 }
 
 preset <- presets[[population]]
-cross <- sim.geno(read_cross(preset$input_file, preset$genotype, preset$na.strings, preset$crosstype), step = 2.5)
+cross <- sim.geno(read_cross(preset$input_file, preset$genotype, preset$na.strings, preset$crosstype),
+                   step = 2.5, n.draws = n_draws)
 
 main_effect_peaks <- read.csv(main_effect_peaks_file, stringsAsFactors = FALSE)
 main_effect_peaks$trait <- sub("^LOD ", "", main_effect_peaks$trait)
@@ -208,6 +266,8 @@ for (trait in unique(peaks$trait)) {
 
   trait_peaks$raw_estimate <- fit$main$raw_estimate
   trait_peaks$fitqtl_lod <- fit$main$fitqtl_lod
+  trait_peaks$fitqtl_pct_var <- fit$main$fitqtl_pct_var
+  trait_peaks$single_qtl_pct_var <- fit$main$single_qtl_pct_var
   trait_peaks$estimate_type <- estimate_type_for(population, trait)
   trait_peaks$estimate <- trait_peaks$raw_estimate * sign_mult(population, trait)
   trait_peaks$effect_class <- "main"
@@ -226,7 +286,8 @@ for (trait in unique(peaks$trait)) {
                 lod = lod,
                 estimate = raw_estimate,
                 estimate_type = "epistatic", effect_class = "epistatic", borrowed = FALSE,
-                fitqtl_lod = fitqtl_lod)
+                fitqtl_lod = fitqtl_lod, fitqtl_pct_var = fitqtl_pct_var,
+                single_qtl_pct_var = single_qtl_pct_var)
     epi_rows <- bind_rows(epi_rows, epi)
   }
 }
@@ -266,6 +327,8 @@ if (nrow(borrow_positions) > 0) {
     lod = NA_real_,
     raw_estimate = sapply(fits, function(x) x$raw_estimate),
     fitqtl_lod = sapply(fits, function(x) x$fitqtl_lod),
+    fitqtl_pct_var = sapply(fits, function(x) x$fitqtl_pct_var),
+    single_qtl_pct_var = sapply(fits, function(x) x$single_qtl_pct_var),
     estimate_type = ifelse(population == "RIL", "a", "d"),
     effect_class = "main",
     borrowed = TRUE
@@ -275,15 +338,19 @@ if (nrow(borrow_positions) > 0) {
 
 results <- bind_rows(main_rows, epi_rows, borrowed_rows) %>%
   select(cross, trait, chr, pos, chr2, pos2, ci_lo, ci_hi, lod, estimate,
-         estimate_type, effect_class, borrowed, fitqtl_lod)
+         estimate_type, effect_class, borrowed, fitqtl_lod, fitqtl_pct_var,
+         single_qtl_pct_var)
 
 # merge into the combined output, replacing any existing rows with the same
 # (cross, trait, chr, pos, chr2, pos2) identity so re-running a population
-# is idempotent; tolerate an old file written before chr2/pos2 existed.
+# is idempotent; tolerate an old file written before chr2/pos2 or the
+# pct_var columns existed.
 if (file.exists(output_file)) {
   existing <- read.csv(output_file, stringsAsFactors = FALSE)
   if (!"chr2" %in% colnames(existing)) existing$chr2 <- NA_integer_
   if (!"pos2" %in% colnames(existing)) existing$pos2 <- NA_real_
+  if (!"fitqtl_pct_var" %in% colnames(existing)) existing$fitqtl_pct_var <- NA_real_
+  if (!"single_qtl_pct_var" %in% colnames(existing)) existing$single_qtl_pct_var <- NA_real_
   key <- function(df) {
     paste(df$cross, df$trait, df$chr, df$pos,
           ifelse(is.na(df$chr2), "", df$chr2), ifelse(is.na(df$pos2), "", df$pos2))

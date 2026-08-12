@@ -307,6 +307,8 @@ s9_main <- data.frame(
   Trait = "NLB WMD", Chr = main$chr, `Pos (IcM)` = fmt_num(main$pos, 1),
   `CI Low` = fmt_num(main$ci_lo, 1), `CI High` = fmt_num(main$ci_hi, 1),
   Effect = fmt_num(main$estimate, 2), LOD = fmt_num(main$lod, 2),
+  `PVE Joint (%)` = fmt_num(main$fitqtl_pct_var, 2),
+  `PVE Single (%)` = fmt_num(main$single_qtl_pct_var, 2),
   Sig = sig_lab[paste(main$cross, main$trait, sep = "|")], check.names = FALSE)
 
 epi <- eff %>% filter(effect_class == "epistatic") %>%
@@ -319,6 +321,8 @@ s9_epi <- do.call(rbind, lapply(seq_len(nrow(epi)), function(i) {
     `Pos (IcM)` = fmt_num(c(r$pos, r$pos2), 1),
     `CI Low` = "N/A", `CI High` = "N/A",
     Effect = fmt_num(rep(r$estimate, 2), 2), LOD = fmt_num(rep(r$lod, 2), 2),
+    `PVE Joint (%)` = fmt_num(rep(r$fitqtl_pct_var, 2), 2),
+    `PVE Single (%)` = fmt_num(rep(r$single_qtl_pct_var, 2), 2),
     Sig = lab, check.names = FALSE)
 }))
 s9 <- rbind(s9_main, s9_epi)
@@ -417,7 +421,9 @@ doc <- add_table(doc,
   s9, notes = c(
     "QTL: rows with the same i.j name are co-located based on overlapping confidence intervals (i = chromosome, j = a chromosome-specific identifier). Rows named i.Ek.j are the two members of epistatic pair Ek.",
     "Effect: in the RIL analysis the additive effect a; in the mid-parent-heterosis (MPH) analyses the dominance effect d; in the backcross (BC) BLUP analyses a confounded combination of a and d. Positive values indicate the B73 allele increases resistance (a) or that the heterozygote is more resistant than the mid-parent (d).",
-    "For epistatic pair members, Effect and LOD are the interaction effect and interaction LOD of the pair (shared by both members); confidence intervals are not given as these QTL were not significant as main effects.",
+    "PVE Joint: percent variance explained by this QTL alone within the full fitted model for its population/trait (all of that population's other significant QTL and genuine epistatic pairs included), i.e. its unique contribution controlling for the rest of the model.",
+    "PVE Single: percent variance explained by this QTL fit on its own against a no-QTL null model, ignoring all other QTL; differs from PVE Joint whenever the population has more than one mapped QTL for that trait.",
+    "For epistatic pair members, Effect, LOD, PVE Joint, and PVE Single are the interaction effect/LOD/PVE of the pair (shared by both members); confidence intervals are not given as these QTL were not significant as main effects.",
     "Sig: the analysis in which the QTL was significant at the 5% level."))
 
 doc <- add_table(doc,
