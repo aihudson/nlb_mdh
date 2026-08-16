@@ -43,6 +43,14 @@ thresholds <- list(
 effect_grid <- read.csv("analyses/qtl_effects_whole_genome.csv", stringsAsFactors = FALSE) %>%
   arrange(chr, pos)
 
+# Orient every effect as the effect of substituting a Mo17 allele with a B73
+# allele (increasing B73 dosage; + = raises resistance). RIL is already on this
+# scale; script 11 emits the two backcross BLUP tracks as the confounded
+# het-minus-hom contrast (d-a for B73 BC, -a-d for Mo17 BC), the opposite
+# direction, so negate them to a-d / a+d.
+effect_grid$NLB_b73_effect  <- -effect_grid$NLB_b73_effect
+effect_grid$NLB_mo17_effect <- -effect_grid$NLB_mo17_effect
+
 main_effect_peaks <- read.csv("analyses/main_effect_peaks.csv", stringsAsFactors = FALSE)
 main_effect_peaks$trait <- sub("^LOD ", "", main_effect_peaks$trait)
 peaks <- main_effect_peaks %>%
@@ -144,7 +152,7 @@ for (ch in sort(unique(peaks$chr))){
   # the Effect (left) panel blanks its y-title in shared_theme; add it here on
   # the assembled grid so the effect direction is stated
   combined <- ggdraw(combined) +
-    draw_label("B73-allele effect on resistance (+ = more resistant)",
+    draw_label("Effect of substituting a Mo17 allele with a B73 allele (+ = more resistant)",
                x = 0, y = 0.5, vjust = 1.5, angle = 90, size = 12)
   ggsave(sprintf("figures/chr%s_nlb.pdf", ch), combined, width = 8, height = 10)
 }

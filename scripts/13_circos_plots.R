@@ -45,6 +45,14 @@ thresholds <- list(
 effect_grid <- read.csv("analyses/qtl_effects_whole_genome.csv", stringsAsFactors = FALSE) %>%
   arrange(chr, pos)
 
+# Orient every effect as the effect of substituting a Mo17 allele with a B73
+# allele (increasing B73 dosage; + = raises resistance). RIL is already on this
+# scale; script 11 emits the two backcross BLUP tracks as the confounded
+# het-minus-hom contrast (d-a for B73 BC, -a-d for Mo17 BC), the opposite
+# direction, so negate them to a-d / a+d. The MPH tracks are dominance, left as-is.
+effect_grid$NLB_b73_effect  <- -effect_grid$NLB_b73_effect
+effect_grid$NLB_mo17_effect <- -effect_grid$NLB_mo17_effect
+
 main_effect_peaks <- read.csv("analyses/main_effect_peaks.csv", stringsAsFactors = FALSE)
 main_effect_peaks$trait <- sub("^LOD ", "", main_effect_peaks$trait)
 combined_qtl <- main_effect_peaks %>%
@@ -167,7 +175,7 @@ dev.off()
 
 pdf("figures/nlb_circos_effect.pdf", width = 7, height = 7)
 make_effect_circos(lod_qtl, effect_grid, combined_qtl)
-mtext("B73-allele effect on resistance (+ = more resistant)",
+mtext("Effect of substituting a Mo17 allele with a B73 allele (+ = more resistant)",
       side = 1, line = 0, cex = 0.9)
 circos.clear()
 dev.off()
@@ -183,7 +191,7 @@ circos.clear()
 par(mar = c(1, 1, 2, 1))
 make_effect_circos(lod_qtl, effect_grid, combined_qtl)
 mtext("B", side = 3, line = 0, adj = 0, cex = 1.3, font = 2)
-mtext("B73-allele effect on resistance (+ = more resistant)",
+mtext("Effect of substituting a Mo17 allele with a B73 allele (+ = more resistant)",
       side = 1, line = 0, cex = 0.8)
 circos.clear()
 
